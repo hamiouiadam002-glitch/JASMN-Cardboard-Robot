@@ -860,7 +860,13 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
       body: JSON.stringify(body)
     }).then(function (res) {
-      if (!res.ok) { var err = new Error('http'); err.status = res.status; throw err; }
+      if (!res.ok) {
+        return res.text().then(function (t) {
+          var err = new Error('http'); err.status = res.status; err.detail = '';
+          try { var j = JSON.parse(t); err.detail = (j.error && j.error.message) || ''; } catch (e) { err.detail = String(t || '').slice(0, 200); }
+          throw err;
+        });
+      }
       return res.json();
     }).then(function (data) {
       var parts = data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
@@ -892,9 +898,9 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       speak(reply, mood, lang);
     }).catch(function (err) {
       var s = err && err.status;
-      if (s === 429) fail('I hit my free limit for now. Try again in a minute, or tomorrow if it was the daily limit.');
-      else if (s === 400 || s === 403) fail('Google rejected my key. Check it in Settings.');
-      else if (s === 404) fail('That model is not available. Press Load models in Settings and pick another.');
+      var d = err && err.detail ? String(err.detail).replace(/\s+/g, ' ').slice(0, 200) : '';
+      if (s === 429) fail('I hit my free limit for now. Try again in a minute, or tomorrow if it was the daily limit.' + (d ? ' (' + d + ')' : ''));
+      else if (s) fail('Google answered with error ' + s + (d ? ': ' + d : '') + ' Try another model in Settings.');
       else if (err && err.name === 'SyntaxError') fail('My answer came out garbled. Try again.');
       else fail('I could not reach my brain. Check the internet connection.');
     });
