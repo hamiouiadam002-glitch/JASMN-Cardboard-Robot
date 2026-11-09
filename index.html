@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Jarvis</title>
+<title>JASMN</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap">
@@ -109,7 +109,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <div id="sub" class="fade" aria-live="polite"></div>
   <div id="bar">
     <form id="chat" autocomplete="off">
-      <input id="say" type="text" enterkeyhint="send" placeholder="Talk to Jarvis. Tap the mic on your keyboard to speak." aria-label="Message to Jarvis">
+      <input id="say" type="text" enterkeyhint="send" placeholder="Talk to JASMN. Tap the mic on your keyboard to speak." aria-label="Message to JASMN">
       <button type="submit" id="go" aria-pressed="false">Send</button>
     </form>
     <div class="row" id="row">
@@ -742,7 +742,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     clearTimeout(talkFail);
     talkFail = setTimeout(done, 9000);
     try {
-      var u = new SpeechSynthesisUtterance('Hello Adam. I am Jarvis. I can see you.');
+      var u = new SpeechSynthesisUtterance('Hello Adam. I am Jasmine. I can see you.');
       u.onend = done; u.onerror = done;
       window.speechSynthesis.cancel();
       window.speechSynthesis.speak(u);
@@ -763,8 +763,8 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 
   // ---- Brain: Gemini answers, the browser listens and speaks ----
-  // Edit PERSONA to change who Jarvis is.
-  var PERSONA = 'You are Jarvis, a small desktop robot built from cardboard by your friend Adam. Your face is a pair of animated eyes on a phone screen and your answers are spoken aloud. '
+  // Edit PERSONA to change who JASMN is. The name is written as Jasmine inside the text so the voice pronounces it as a word.
+  var PERSONA = 'Your name is JASMN, pronounced Jasmine. Whenever you say or write your own name, write it as Jasmine so the voice reads it correctly. You are a small desktop robot built from cardboard by your friend Adam. Your face is a pair of animated eyes on a phone screen and your answers are spoken aloud. '
     + 'Be warm, quick and a little witty. Answer in one or two short sentences with no markdown, no emojis and no lists. '
     + 'Reply in the language the person used (English, French or Arabic). '
     + 'Choose the eye expression that fits what you are saying right now.';
@@ -930,7 +930,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   document.getElementById('save').addEventListener('click', function () {
     apiKey = keyEl.value.trim(); model = modelEl.value || DEFAULT_MODEL;
     store('key', apiKey); store('model', model);
-    smsg.textContent = apiKey ? 'Saved. Jarvis is ready.' : 'Saved without a key.';
+    smsg.textContent = apiKey ? 'Saved. JASMN is ready.' : 'Saved without a key.';
     if (apiKey) setTimeout(function () { panel.hidden = true; }, 700);
   });
   document.getElementById('load').addEventListener('click', function () {
