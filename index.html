@@ -1,0 +1,981 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Jarvis</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout concept: one full screen canvas of glowing eyes on a dead black ground, with a thin control strip that fades away after a few seconds so the robot face is all that remains. Deliberately a single dark look: this is a screen that lives inside a cardboard head. */
+:root {
+  --bg: #04070b;
+  --ink: #d8f3ff;
+  --dim: #7c95a3;
+  --panel: #0b1219;
+  --line: #1d2c38;
+  --accent: #5ad2ff;
+  --font-ui: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+html { box-sizing: border-box; height: 100%; background: var(--bg); }
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  overflow: hidden;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+#stage { position: relative; width: 100%; height: 100%; }
+#cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; background: var(--bg); }
+
+#hint {
+  position: absolute; top: 12px; left: 0; right: 0;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  text-align: center; font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--dim); pointer-events: none; transition: opacity .4s;
+}
+#hint.fade { opacity: 0; }
+
+#bar {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  padding-top: 12px; padding-bottom: 12px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: linear-gradient(to top, rgba(4,7,11,.92) 55%, rgba(4,7,11,0));
+  transition: opacity .35s, transform .35s;
+}
+#bar.off { opacity: 0; transform: translateY(10px); pointer-events: none; }
+.row { display: flex; align-items: center; gap: 8px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.row::-webkit-scrollbar { display: none; }
+.lab { flex: none; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); padding-right: 4px; }
+.sep { flex: none; width: 1px; height: 24px; background: var(--line); margin: 0 4px; }
+button {
+  flex: none; min-height: 44px; padding: 0 16px; border-radius: 22px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+  font: 500 13px var(--font-ui); letter-spacing: .04em; cursor: pointer;
+}
+button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#chat { display: flex; gap: 8px; margin-bottom: 8px; }
+#say {
+  flex: 1; min-width: 0; min-height: 44px; padding: 0 16px; border-radius: 22px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+  font: 400 16px var(--font-ui); -webkit-user-select: text; user-select: text;
+}
+#say::placeholder { color: var(--dim); }
+#say:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#sub {
+  position: absolute; top: 12px; left: 0; right: 0; text-align: center;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  font-size: 15px; line-height: 1.4; color: var(--ink); text-wrap: balance; text-shadow: 0 0 8px #04070b, 0 0 16px #04070b, 0 0 24px #04070b;
+  pointer-events: none; transition: opacity .6s; opacity: 1;
+}
+#sub.fade { opacity: 0; }
+</style>
+<style>
+[hidden] { display: none !important; }
+#settings {
+  position: absolute; inset: 0; z-index: 20; background: rgba(4,7,11,.92); overflow-y: auto;
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 16px max(16px, env(safe-area-inset-right, 0px)) 16px max(16px, env(safe-area-inset-left, 0px));
+}
+#settings .card { width: min(520px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; -webkit-user-select: text; user-select: text; }
+#settings h2 { margin: 0 0 12px; font-size: 15px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+#settings label { display: block; margin: 12px 0 6px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
+#settings input, #settings select {
+  width: 100%; min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--ink); font: 400 16px var(--font-ui);
+}
+#settings .btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+#smsg { min-height: 1.4em; margin: 12px 0 0; font-size: 13px; color: var(--ink); }
+#settings .note { margin: 8px 0 0; font-size: 12px; line-height: 1.5; color: var(--dim); }
+</style>
+
+</head>
+<body>
+
+
+<div id="stage">
+  <canvas id="cv" aria-label="Animated robot eyes"></canvas>
+  <div id="hint" hidden>Rotate your phone to landscape</div>
+  <div id="sub" class="fade" aria-live="polite"></div>
+  <div id="bar">
+    <form id="chat" autocomplete="off">
+      <input id="say" type="text" enterkeyhint="send" placeholder="Talk to Jarvis. Tap the mic on your keyboard to speak." aria-label="Message to Jarvis">
+      <button type="submit" id="go" aria-pressed="false">Send</button>
+    </form>
+    <div class="row" id="row">
+      <span class="lab">Mood</span>
+    </div>
+  </div>
+</div>
+
+<div id="settings" hidden>
+  <div class="card">
+    <h2>Brain settings</h2>
+    <label for="key">Gemini API key</label>
+    <input id="key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste your key here">
+    <label for="model">Model</label>
+    <select id="model"></select>
+    <div class="btns">
+      <button type="button" id="load">Load models</button>
+      <button type="button" id="save" aria-pressed="true">Save</button>
+      <button type="button" id="close">Close</button>
+    </div>
+    <p id="smsg" aria-live="polite"></p>
+    <p class="note">Your key is stored only in this browser on this device and is sent only to Google. Press Load models after pasting it, pick a Flash Lite model, then Save.</p>
+  </div>
+</div>
+
+<script>
+(function () {
+  var cv = document.getElementById('cv');
+  var ctx = cv.getContext('2d');
+  var off = document.createElement('canvas');
+  var octx = off.getContext('2d');
+  var bar = document.getElementById('bar');
+  var row = document.getElementById('row');
+  var hint = document.getElementById('hint');
+  var W = 0, H = 0, dpr = 1;
+
+  /* Every mood is a set of targets that the face eases toward.
+     sx, sy: eye width and height. top: upper lid coverage (0 to 1). slant: lid tilt, positive lowers the inner side.
+     bot: happy lower lid. browL, browR: brow lift. tilt: brow tilt, positive lowers the inner end.
+     xAmt: cross eyes (dead). spAmt: spiral eyes (dizzy). stars: floating stars inside the eyes. */
+  function mood(o) {
+    return Object.assign({
+      sxL: 1, syL: 1, sxR: 1, syR: 1, top: 0, slant: 0, bot: 0, bx: 0, by: 0, fixed: 0,
+      browL: 0, browR: 0, tilt: 0, xAmt: 0, spAmt: 0, stars: 0, shake: 0, shiver: 0, tremble: 0, blush: 0, nodX: 0, nodY: 0, mw: .34, mt: 0, mb: 0, msk: 0, mxo: 0, mwav: 0, mro: 0, etilt: 0, qmark: 0, zzz: 0, hearts: 0, tears: 0, sweat: 0, pant: 0, breathe: 0, heartAmt: 0, ease: 9, rgb: [90, 210, 255]
+    }, o);
+  }
+  var MOODS = {
+    neutral:   { label: 'Neutral',   p: mood({}) },
+    smile:     { label: 'Smiling',   p: mood({ bot: .1, browL: .04, browR: .04, rgb: [105, 220, 255] }) },
+    happy:     { label: 'Happy',     p: mood({ syL: .92, syR: .92, bot: 1, browL: .1, browR: .1, tilt: -.1, rgb: [120, 232, 255] }) },
+    curious:   { label: 'Curious',   p: mood({ sxL: 1.12, sxR: 1.12, syL: .09, syR: .09, browL: .05, browR: .3, tilt: .15, bx: .3, by: -.15 }) },
+    surprised: { label: 'Surprised', p: mood({ sxL: .92, sxR: .92, syL: 1.05, syR: 1.05, browL: .12, browR: .12, tilt: -.12, stars: 1, tremble: 1, rgb: [72, 176, 255] }) },
+    sleepy:    { label: 'Sleepy',    p: mood({ syL: .9, syR: .9, top: .5, slant: -.05, by: .2, browL: -.04, browR: -.04, tilt: -.25, shiver: 1, rgb: [80, 170, 215] }) },
+    thinking:  { label: 'Thinking',  p: mood({ top: .12, bx: -.3, by: .6, fixed: 1, browL: .16, browR: -.02, rgb: [170, 160, 255] }) },
+    angry:     { label: 'Angry',     p: mood({ top: .12, slant: .38, browL: -.1, browR: -.1, tilt: .6, shake: 1, rgb: [255, 112, 82] }) },
+    dead:      { label: 'Dead',      p: mood({ xAmt: 1, fixed: 1, by: .1, browL: .02, browR: .02, tilt: -.35, rgb: [150, 166, 184] }) },
+    dizzy:     { label: 'Dizzy',     p: mood({ spAmt: 1, browL: .1, browR: .1, rgb: [170, 230, 140] }) },
+    shy:       { label: 'Shy',       p: mood({ sxL: .88, sxR: .88, syL: .82, syR: .82, top: .18, slant: -.08, bot: .2, bx: -.55, by: .3, fixed: 1, browL: .08, browR: .08, tilt: -.35, blush: 1, shiver: .6, rgb: [150, 215, 255] }) },
+    yes:       { label: 'Yes',       p: mood({ syL: 1.02, syR: 1.02, bot: .6, fixed: 1, browL: .14, browR: .14, tilt: -.1, nodY: 1, rgb: [120, 232, 255] }) },
+    no:        { label: 'No',        p: mood({ syL: .95, syR: .95, top: .1, fixed: 1, browL: -.04, browR: -.04, tilt: .25, nodX: 1 }) },
+    sleeping:  { label: 'Sleeping',  p: mood({ top: .97, by: .15, fixed: 1, browL: -.05, browR: -.05, tilt: -.1, breathe: 1, zzz: 1, rgb: [95, 160, 210], ease: 3 }) },
+    crying:    { label: 'Crying',    p: mood({ top: .22, slant: -.3, by: .3, fixed: 1, browL: .02, browR: .02, tilt: -.5, tears: 1, tremble: .9, shiver: .5, rgb: [120, 185, 255], ease: 5 }) },
+    disappointed: { label: 'Disappointed', p: mood({ top: .3, slant: -.1, by: .5, bx: -.2, fixed: 1, browL: -.06, browR: -.06, tilt: -.3, rgb: [118, 150, 185], ease: 4 }) },
+    hope:      { label: 'Hope',      p: mood({ top: .28, slant: .1, syL: .92, syR: .92, by: -.25, fixed: 1, browL: -.06, browR: -.06, tilt: .3, rgb: [200, 235, 255], ease: 1.5 }) },
+    badass:    { label: 'Badass',    p: mood({ top: .42, by: .05, bx: .5, fixed: 1, browR: .14, tilt: .12, rgb: [125, 195, 230], ease: 3 }) },
+    hot:       { label: 'Hot',       p: mood({ top: .3, by: .25, fixed: 1, browL: -.02, browR: -.02, tilt: -.2, blush: .8, sweat: 1, pant: 1, shiver: .5, rgb: [255, 135, 95], ease: 4 }) },
+    cold:      { label: 'Cold',      p: mood({ top: .2, bot: .25, by: .1, fixed: 1, browL: .08, browR: .08, tilt: -.3, tremble: 3, rgb: [160, 220, 255], ease: 5 }) },
+    proud:     { label: 'Proud',     p: mood({ top: .2, bot: .3, by: -.3, fixed: 1, browL: .14, browR: .14, tilt: -.05, stars: .9, rgb: [255, 232, 160], ease: 5 }) },
+    sympathy:  { label: 'Sympathy',  p: mood({ sxL: 1.05, syL: 1.05, sxR: 1.05, syR: 1.05, top: .08, slant: -.25, by: .3, bx: -.25, fixed: 1, browL: .1, browR: .1, tilt: -.55, shiver: .5, rgb: [135, 190, 255], ease: 4 }) },
+    lovable:   { label: 'Lovable',   p: mood({ heartAmt: 1, blush: 1, browL: .12, browR: .12, tilt: -.1, hearts: 1, breathe: .6, rgb: [255, 120, 165], ease: 6 }) },
+    shocked:   { label: 'Shocked',   p: mood({ sxL: 1.08, sxR: 1.08, browL: .3, browR: .3, tilt: -.15, tremble: 1.5, fixed: 1, rgb: [205, 232, 255] }) },
+    confused:  { label: 'Confused',  p: mood({ sxL: 1, syL: 1, sxR: .9, syR: .78, top: .05, by: -.15, bx: .25, browL: .12, browR: -.08, tilt: .3, etilt: .05, qmark: 1, rgb: [255, 210, 110] }) }
+  };
+  /* mouth per mood, in units of u: mw width, mt and mb height of the upper and lower lip curve (equal means a closed line,
+     positive smiles, negative frowns), msk right end lift, mxo sideways shift, mwav wobble, mro 1 draws a round ring (pursed lips) */
+  var MOUTH = {
+    neutral:   { mw: .34, mt: 0, mb: 0 },
+    smile:     { mw: .4, mt: .1, mb: .1 },
+    happy:     { mw: .5, mt: .1, mb: .28 },
+    curious:   { mw: .14, mt: 0, mb: 0, mxo: .12 },
+    surprised: { mw: .2, mt: -.12, mb: .2 },
+    sleepy:    { mw: .22, mt: 0, mb: 0 },
+    thinking:  { mw: .22, mt: 0, mb: 0 },
+    angry:     { mw: .36, mt: -.1, mb: -.1 },
+    dead:      { mw: .3, mt: 0, mb: 0, mwav: .6 },
+    dizzy:     { mw: .38, mt: 0, mb: 0, mwav: 1.4 },
+    shy:       { mw: .24, mt: .07, mb: .07 },
+    yes:       { mw: .5, mt: .14, mb: .14 },
+    no:        { mw: .3, mt: -.04, mb: -.04 },
+    sleeping:  { mw: .12, mt: -.04, mb: .06, mro: 1 },
+    crying:    { mw: .34, mt: -.14, mb: -.03 },
+    disappointed: { mw: .32, mt: -.08, mb: -.08 },
+    hope:      { mw: .3, mt: 0, mb: 0 },
+    badass:    { mw: .3, mt: 0, mb: 0, msk: -.12, mxo: .06 },
+    hot:       { mw: .26, mt: .03, mb: .1 },
+    cold:      { mw: .38, mt: 0, mb: 0, mwav: 1.4 },
+    proud:     { mw: .5, mt: .14, mb: .14 },
+    sympathy:  { mw: .22, mt: -.08, mb: -.08 },
+    lovable:   { mw: .4, mt: .12, mb: .12 },
+    shocked:   { mw: .28, mt: -.1, mb: .36 },
+    confused:  { mw: .26, mt: 0, mb: 0, mwav: .8, mxo: .1 }
+  };
+  Object.keys(MOUTH).forEach(function (k) { Object.assign(MOODS[k].p, MOUTH[k]); });
+  var ORDER = ['neutral', 'smile', 'happy', 'curious', 'surprised', 'sleepy', 'thinking', 'angry', 'dead', 'dizzy', 'shy', 'yes', 'no', 'confused', 'sleeping', 'crying', 'disappointed', 'hope', 'badass', 'hot', 'cold', 'proud', 'sympathy', 'lovable', 'shocked'];
+  var NUM = ['sxL', 'syL', 'sxR', 'syR', 'top', 'slant', 'bot', 'bx', 'by', 'fixed', 'browL', 'browR', 'tilt', 'xAmt', 'spAmt', 'stars', 'shake', 'shiver', 'tremble', 'blush', 'nodX', 'nodY', 'mw', 'mt', 'mb', 'msk', 'mxo', 'mwav', 'mro', 'etilt', 'qmark', 'zzz', 'hearts', 'tears', 'sweat', 'pant', 'breathe', 'heartAmt'];
+
+  var cur = Object.assign({}, MOODS.neutral.p, { rgb: MOODS.neutral.p.rgb.slice() });
+  var tgt = MOODS.neutral.p;
+  var current = 'neutral';
+
+  var lookX = 0, lookY = 0;
+  var idleX = 0, idleY = 0, nextIdle = 0;
+  var ptrX = 0, ptrY = 0, ptrUntil = 0;
+  var blinkStart = -1, nextBlink = 1800;
+  var popAmp = 0;
+  var talking = false, talkFail = 0, talkPrev = null, talkId = 0;
+  var demo = false, demoNext = 0;
+  var barTimer = 0;
+
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = cv.clientWidth; H = cv.clientHeight;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    off.width = cv.width; off.height = cv.height;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    hint.hidden = W >= H;
+  }
+  window.addEventListener('resize', resize);
+
+  function rrect(c, x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    c.beginPath();
+    c.moveTo(x + r, y);
+    c.arcTo(x + w, y, x + w, y + h, r);
+    c.arcTo(x + w, y + h, x, y + h, r);
+    c.arcTo(x, y + h, x, y, r);
+    c.arcTo(x, y, x + w, y, r);
+    c.closePath();
+  }
+  function star(c, x, y, R, rot) {
+    c.beginPath();
+    for (var i = 0; i < 10; i++) {
+      var a = rot + i * Math.PI / 5 - Math.PI / 2;
+      var r = i % 2 ? R * .45 : R;
+      if (i) c.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+      else c.moveTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+    }
+    c.closePath();
+  }
+  function heart(c, x, y, sz) {
+    c.beginPath();
+    c.moveTo(x, y + sz * .38);
+    c.bezierCurveTo(x - sz * .62, y - sz * .02, x - sz * .5, y - sz * .5, x - sz * .25, y - sz * .5);
+    c.bezierCurveTo(x - sz * .1, y - sz * .5, x, y - sz * .38, x, y - sz * .3);
+    c.bezierCurveTo(x, y - sz * .38, x + sz * .1, y - sz * .5, x + sz * .25, y - sz * .5);
+    c.bezierCurveTo(x + sz * .5, y - sz * .5, x + sz * .62, y - sz * .02, x, y + sz * .38);
+    c.closePath();
+  }
+  function drop(c, x, y, r) {
+    c.beginPath();
+    c.moveTo(x, y - r * 2.2);
+    c.quadraticCurveTo(x + r * 1.1, y - r * .2, x + r, y + r * .3);
+    c.arc(x, y + r * .3, r, 0, Math.PI);
+    c.quadraticCurveTo(x - r * 1.1, y - r * .2, x, y - r * 2.2);
+    c.closePath();
+    c.fill();
+  }
+  function spiral(c, R, rot, lw) {
+    var steps = 80, tm = 2.7 * Math.PI * 2;
+    c.beginPath();
+    for (var i = 0; i <= steps; i++) {
+      var th = tm * i / steps, r = R * i / steps;
+      var x = Math.cos(th + rot) * r, y = Math.sin(th + rot) * r;
+      if (i) c.lineTo(x, y); else c.moveTo(x, y);
+    }
+    c.lineWidth = lw;
+    c.stroke();
+  }
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  function rand(a, b) { return a + Math.random() * (b - a); }
+  function rgba(c, a) { return 'rgba(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ',' + a + ')'; }
+
+  function setMood(name) {
+    if ((name === 'surprised' || name === 'shocked') && current !== name) popAmp = name === 'shocked' ? 1.8 : 1;
+    current = name;
+    tgt = MOODS[name].p;
+    var chips = row.querySelectorAll('[data-mood]');
+    for (var i = 0; i < chips.length; i++) chips[i].setAttribute('aria-pressed', chips[i].dataset.mood === name ? 'true' : 'false');
+  }
+
+  function draw(t, dt) {
+    var k = 1 - Math.exp(-dt * tgt.ease);
+    for (var i = 0; i < NUM.length; i++) cur[NUM[i]] += (tgt[NUM[i]] - cur[NUM[i]]) * k;
+    for (var j = 0; j < 3; j++) cur.rgb[j] += (tgt.rgb[j] - cur.rgb[j]) * k;
+    popAmp *= Math.exp(-dt * 2.4);
+
+    if (t > nextIdle) {
+      idleX = rand(-.85, .85); idleY = rand(-.5, .5);
+      nextIdle = t + rand(1400, 3600);
+    }
+    var tx = idleX * (1 - cur.fixed) + cur.bx;
+    var ty = idleY * (1 - cur.fixed) + cur.by;
+    if (current === 'shy' && t % 5200 < 650) { tx = .15; ty = -.1; }
+    if (current === 'thinking' && t % 4800 < 700) { tx = -.3; ty = -.65; }
+    if (t < ptrUntil) { tx = ptrX; ty = ptrY; }
+    tx += cur.spAmt * Math.sin(t * .0031) * .45;
+    ty += cur.spAmt * Math.cos(t * .0027) * .2;
+    var kl = 1 - Math.exp(-dt * 14);
+    lookX += (clamp(tx, -1, 1) - lookX) * kl;
+    lookY += (clamp(ty, -1, 1) - lookY) * kl;
+
+    var blink = 0;
+    if (cur.xAmt > .5 || current === 'sleeping') { blinkStart = -1; nextBlink = t + 1200; }
+    if (blinkStart < 0 && t > nextBlink) blinkStart = t;
+    if (blinkStart >= 0) {
+      var p = (t - blinkStart) / (current === 'sleepy' ? 340 : 200);
+      if (p >= 1) {
+        blinkStart = -1;
+        nextBlink = t + (Math.random() < .2 ? 260 : rand(2200, 5800) * (current === 'sleepy' ? 1.5 : 1));
+      } else blink = Math.sin(p * Math.PI);
+    }
+
+    var pulse = 1;
+    if (talking) pulse = 1 + .07 * Math.abs(Math.sin(t * .009) * Math.sin(t * .0053 + 1));
+    var ps = 1 + .15 * popAmp;
+
+    var u = Math.min(W / 4.4, H / 2.2);
+    var w0 = u * 1.05, gap = u * .85;
+    var R0 = cur.rgb;
+    var rgb = rgba(R0, 1);
+    var baseA = clamp(1 - cur.xAmt - cur.spAmt - cur.heartAmt, 0, 1);
+    var tilt = cur.tilt + cur.spAmt * Math.sin(t * .004) * .4;
+    var lidFill = 'rgb(' + ((4 + (R0[0] - 4) * .16) | 0) + ',' + ((7 + (R0[1] - 7) * .16) | 0) + ',' + ((11 + (R0[2] - 11) * .16) | 0) + ')';
+
+    octx.clearRect(0, 0, W, H);
+    var geo = [];
+    var coverSum = 0;
+    for (var e = 0; e < 2; e++) {
+      var side = e === 0 ? -1 : 1;
+      var sx = side < 0 ? cur.sxL : cur.sxR;
+      var sy = side < 0 ? cur.syL : cur.syR;
+      var w = w0 * sx * ps;
+      var h = u * 1.35 * sy * pulse * ps;
+      /* motion on the whole face, brows included: anger vibrates, sleepy shivers slowly, surprise trembles nervously in bursts */
+      var env = .55 + .45 * Math.pow(Math.sin(t * .0023 + 1), 2);
+      var jx = cur.shake * u * (.014 * Math.sin(t * .11 + e) + .01 * Math.sin(t * .187 + 2 * e + 1))
+        + cur.shiver * u * (.012 * Math.sin(t * .0095 + e * .3) + .006 * Math.sin(t * .0151))
+        + cur.tremble * env * u * (.007 * Math.sin(t * .16 + e) + .005 * Math.sin(t * .253 + 2 * e))
+        + cur.nodX * u * .22 * Math.sin(t * .011);
+      var jy = cur.shake * u * (.012 * Math.sin(t * .131 + 3 * e) + .008 * Math.sin(t * .223 + e + 2))
+        + cur.shiver * u * .008 * Math.sin(t * .0071)
+        + cur.tremble * env * u * (.005 * Math.sin(t * .19 + 2 * e) + .004 * Math.sin(t * .271 + e))
+        + cur.nodY * u * .15 * Math.sin(t * .026)
+        + cur.breathe * u * .025 * Math.sin(t * .0022);
+      var cx = W / 2 + side * (w0 / 2 + gap / 2) + lookX * u * .5 + jx;
+      var cy = H / 2 + u * .08 + lookY * u * .32 + jy + side * cur.etilt * u;
+      var inner = -side;
+
+      /* the upper lid closes the eye from the top (blinks, sleepy, angry) and follows the gaze:
+         looking down lowers it, looking up lifts it. The lower lid rises a little on a blink. */
+      var shapeEye = 1 - clamp(cur.xAmt + cur.spAmt + cur.heartAmt, 0, 1);
+      var topEff = clamp(cur.top + (1 - cur.top) * blink + (Math.max(0, lookY) * .07 - Math.max(0, -lookY) * .04) * shapeEye, 0, 1);
+      var lowFlat = clamp(blink * .16, 0, 1);
+      geo.push({ cx: cx, cy: cy, w: w, h: h, inner: inner, topEff: topEff, lowFlat: lowFlat });
+      coverSum += topEff;
+
+      octx.save();
+      octx.translate(cx, cy);
+
+      if (baseA > .01) {
+        octx.globalAlpha = baseA;
+        octx.fillStyle = rgb;
+        rrect(octx, -w / 2, -h / 2, w, h, u * .36);
+        octx.fill();
+        var glintA = clamp((h / u - .4) * 3, 0, 1) * baseA;
+        if (glintA > .01) {
+          octx.globalAlpha = glintA;
+          octx.fillStyle = 'rgba(255,255,255,.5)';
+          rrect(octx, -w * .3, -h * .34, w * .2, h * .1, u * .05);
+          octx.fill();
+        }
+        if (cur.stars > .02) {
+          octx.save();
+          rrect(octx, -w / 2, -h / 2, w, h, u * .36);
+          octx.clip();
+          for (var s = 0; s < 6; s++) {
+            var ph = (t * .00028 * (.7 + .15 * s) + s * .173 + e * .31) % 1;
+            var sxp = (((s * .37 + e * .11) % 1) - .5) * w * .62 + Math.sin(t * .0021 + s * 1.7) * w * .05;
+            var syp = h / 2 - ph * h * 1.1 + h * .05;
+            var sr = u * (.1 + .035 * ((s * 3) % 3)) * (.75 + .25 * Math.sin(t * .006 + s));
+            octx.globalAlpha = Math.sin(Math.PI * ph) * cur.stars * baseA;
+            octx.fillStyle = 'rgb(255,248,200)';
+            star(octx, sxp, syp, sr, t * .0018 * (s % 2 ? 1 : -1) + s);
+            octx.fill();
+          }
+          octx.restore();
+        }
+      }
+
+      if (cur.xAmt > .01) {
+        octx.globalAlpha = cur.xAmt;
+        octx.strokeStyle = rgb;
+        octx.lineWidth = u * .14;
+        octx.lineCap = 'round';
+        var xs = Math.min(w, h) * .36;
+        octx.beginPath();
+        octx.moveTo(-xs, -xs); octx.lineTo(xs, xs);
+        octx.moveTo(xs, -xs); octx.lineTo(-xs, xs);
+        octx.stroke();
+      }
+      if (cur.spAmt > .01) {
+        octx.globalAlpha = cur.spAmt;
+        octx.strokeStyle = rgb;
+        octx.lineCap = 'round';
+        octx.lineJoin = 'round';
+        spiral(octx, Math.min(w, h) * .46, t * .007, u * .075);
+      }
+      if (cur.heartAmt > .01) {
+        octx.globalAlpha = cur.heartAmt;
+        octx.fillStyle = rgb;
+        heart(octx, 0, Math.min(w, h) * .06, Math.min(w, h) * 1.05 * (1 + .08 * Math.sin(t * .008)));
+        octx.fill();
+      }
+
+      /* eyebrows ride on the eye: they follow its size, its gaze and every blink */
+      var raise = side < 0 ? cur.browL : cur.browR;
+      var bw = w * .95;
+      var by = -h / 2 - u * (.2 + raise + .3 * (1 - clamp(h / (u * 1.35), 0, 1))) + blink * u * .1;
+      by = Math.max(by, u * .1 - cy);
+      var yi = by + tilt * bw * .2;
+      var yo = by - tilt * bw * .2;
+      octx.globalAlpha = .92;
+      octx.strokeStyle = rgb;
+      octx.lineWidth = u * .12;
+      octx.lineCap = 'round';
+      octx.beginPath();
+      octx.moveTo(-inner * bw / 2, yo);
+      octx.quadraticCurveTo(0, (yi + yo) / 2 - u * .1, inner * bw / 2, yi);
+      octx.stroke();
+
+      octx.restore();
+    }
+
+    /* the mouth sits low between the eyes and travels with them */
+    var mx = (geo[0].cx + geo[1].cx) / 2 + cur.mxo * u;
+    var my = (geo[0].cy + geo[1].cy) / 2 + u * .46;
+    var yawn = 0;
+    if (current === 'sleepy') { var yp = t % 7000; if (yp < 1800) yawn = Math.sin(Math.PI * yp / 1800); }
+    var talkOpen = talking ? Math.abs(Math.sin(t * .012) * Math.sin(t * .0071 + 1)) : 0;
+    var extra = Math.max(yawn, talkOpen, cur.pant * (.5 + .5 * Math.sin(t * .012)));
+    var mwid = (cur.mw + extra * .1) * u;
+    var mtop = cur.mt * u;
+    var mbot = (cur.mb + extra * .26) * u;
+    var mskew = cur.msk * u;
+    octx.save();
+    octx.translate(mx, my);
+    octx.globalAlpha = 1;
+    octx.strokeStyle = rgb;
+    octx.fillStyle = rgb;
+    octx.lineWidth = u * .07;
+    octx.lineCap = 'round';
+    octx.lineJoin = 'round';
+    octx.beginPath();
+    if (cur.mwav > .05) {
+      var amp = u * .045 * cur.mwav;
+      for (var mi = 0; mi <= 24; mi++) {
+        var fx = mi / 24;
+        var py = amp * Math.sin(fx * Math.PI * 4 + t * .008 * (cur.mwav > 1 ? 1.5 : .6));
+        if (mi) octx.lineTo((fx - .5) * mwid, py); else octx.moveTo((fx - .5) * mwid, py);
+      }
+      octx.stroke();
+    } else if (cur.mro > .5) {
+      octx.lineWidth = u * .06;
+      octx.ellipse(0, (mtop + mbot) / 2, Math.max(1, mwid / 2), Math.max(1, (mbot - mtop) / 2), 0, 0, Math.PI * 2);
+      octx.stroke();
+    } else if (mbot - mtop > u * .04) {
+      octx.moveTo(-mwid / 2, 0);
+      octx.quadraticCurveTo(0, 2 * mtop - mskew * .5, mwid / 2, mskew);
+      octx.quadraticCurveTo(0, 2 * mbot - mskew * .5, -mwid / 2, 0);
+      octx.closePath();
+      octx.fill();
+    } else {
+      octx.moveTo(-mwid / 2, 0);
+      octx.quadraticCurveTo(0, 2 * mtop - mskew * .5, mwid / 2, mskew);
+      octx.stroke();
+    }
+    octx.restore();
+
+    if (cur.qmark > .03) {
+      /* question marks drift up from the lower right of the face: fade in at the bottom, fade out at the top */
+      var re = geo[1];
+      var qx0 = Math.min(re.cx + re.w / 2 + u * .38, W - u * .3);
+      var qyb = re.cy + u * .1, qyt = re.cy - u * .85;
+      for (var qi = 0; qi < 2; qi++) {
+        var qp = (t / 2600 + qi * .5) % 1;
+        var qs = u * (qi ? .36 : .5);
+        octx.save();
+        octx.globalAlpha = clamp(Math.sin(Math.PI * qp) * cur.qmark, 0, 1);
+        octx.fillStyle = rgb;
+        octx.strokeStyle = rgb;
+        octx.lineWidth = qs * .06;
+        octx.lineJoin = 'round';
+        octx.font = 'bold ' + Math.round(qs) + 'px ui-monospace, Menlo, Consolas, monospace';
+        octx.textAlign = 'center';
+        octx.textBaseline = 'middle';
+        octx.translate(qx0 + (qi ? -u * .22 : u * .06) + Math.sin(t * .003 + qi * 2) * u * .05, qyb + (qyt - qyb) * qp);
+        octx.rotate(Math.sin(t * .0025 + qi) * .14);
+        octx.strokeText('?', 0, 0);
+        octx.fillText('?', 0, 0);
+        octx.restore();
+      }
+    }
+
+    if (cur.tears > .03) {
+      octx.fillStyle = 'rgb(170,220,255)';
+      for (var te = 0; te < 2; te++) {
+        var tg = geo[te], tside = te ? 1 : -1;
+        for (var tk = 0; tk < 2; tk++) {
+          var tp = (t / 1500 + tk * .5 + te * .2) % 1;
+          octx.globalAlpha = clamp(Math.sin(Math.PI * tp) * 1.4 * cur.tears, 0, 1);
+          drop(octx, tg.cx + tside * tg.w * (.2 + .06 * tk), tg.cy + tg.h * .3 + tp * u * .95, u * .055);
+        }
+      }
+      octx.globalAlpha = 1;
+    }
+    if (cur.sweat > .03) {
+      octx.fillStyle = 'rgb(170,220,255)';
+      var sg = geo[1];
+      for (var sk = 0; sk < 2; sk++) {
+        var sp = (t / 2200 + sk * .5) % 1;
+        octx.globalAlpha = clamp(Math.sin(Math.PI * sp) * cur.sweat, 0, 1);
+        drop(octx, sg.cx + sg.w / 2 + u * (.18 + sk * .12), sg.cy - sg.h * .35 + sp * u, u * .06);
+      }
+      octx.globalAlpha = 1;
+    }
+    if (cur.zzz > .03) {
+      var zg = geo[1];
+      var zx0 = Math.min(zg.cx + zg.w / 2 + u * .2, W - u * .35);
+      for (var zi = 0; zi < 3; zi++) {
+        var zp = (t / 3600 + zi / 3) % 1;
+        var zs = u * (.22 + .22 * zp);
+        octx.save();
+        octx.globalAlpha = clamp(Math.sin(Math.PI * zp) * cur.zzz, 0, 1);
+        octx.fillStyle = rgb;
+        octx.strokeStyle = rgb;
+        octx.lineWidth = zs * .06;
+        octx.lineJoin = 'round';
+        octx.font = 'bold ' + Math.round(zs) + 'px ui-monospace, Menlo, Consolas, monospace';
+        octx.textAlign = 'center';
+        octx.textBaseline = 'middle';
+        octx.translate(zx0 + zp * u * .25 + Math.sin(t * .002 + zi) * u * .04, zg.cy - u * .05 - zp * u * .85);
+        octx.strokeText('Z', 0, 0);
+        octx.fillText('Z', 0, 0);
+        octx.restore();
+      }
+    }
+    if (cur.hearts > .03) {
+      octx.fillStyle = 'rgb(255,120,165)';
+      for (var hi = 0; hi < 4; hi++) {
+        var hp = (t / 3200 + hi * .25) % 1;
+        var hx = W / 2 + (hi % 2 ? 1 : -1) * u * (1.75 + .1 * (hi >> 1)) + Math.sin(t * .0025 + hi * 1.3) * u * .06;
+        var hy = H / 2 + u * .5 - hp * u * 1.5;
+        octx.globalAlpha = clamp(Math.sin(Math.PI * hp) * cur.hearts, 0, 1);
+        heart(octx, hx, hy, u * (.22 + .06 * (hi % 3)));
+        octx.fill();
+      }
+      octx.globalAlpha = 1;
+    }
+
+    var glowA = .65 * (1 - .85 * (coverSum / 2));
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = '#04070b';
+    ctx.fillRect(0, 0, W, H);
+    if (cur.blush > .02) {
+      for (var q = 0; q < geo.length; q++) {
+        var gq = geo[q];
+        var bx0 = gq.cx + (q ? 1 : -1) * u * .1, by0 = gq.cy + gq.h / 2 + u * .02;
+        var rg = ctx.createRadialGradient(bx0, by0, 0, bx0, by0, u * .42);
+        rg.addColorStop(0, 'rgba(255,120,165,' + (.55 * cur.blush) + ')');
+        rg.addColorStop(1, 'rgba(255,120,165,0)');
+        ctx.fillStyle = rg;
+        ctx.fillRect(bx0 - u * .5, by0 - u * .5, u, u);
+      }
+    }
+    ctx.save();
+    ctx.shadowColor = rgba(R0, glowA);
+    ctx.shadowBlur = u * .45 * dpr;
+    ctx.drawImage(off, 0, 0, W, H);
+    ctx.restore();
+    ctx.drawImage(off, 0, 0, W, H);
+
+    /* lids are drawn last, as solid shapes clipped to each eye, so the whole upper part of the eye closes from the top */
+    {
+      var rim = rgba(R0, .95);
+      var rimW = Math.max(1.5, u * .03);
+      for (var g = 0; g < geo.length; g++) {
+        var o = geo[g];
+        var ew = o.w, eh = o.h;
+        ctx.save();
+        ctx.translate(o.cx, o.cy);
+        rrect(ctx, -ew / 2, -eh / 2, ew, eh, u * .36);
+        ctx.clip();
+
+        var sl2 = cur.slant * eh;
+        if (o.topEff > .015 || Math.abs(sl2) > .5) {
+          var y0 = -eh / 2 + o.topEff * eh;
+          var yLx = y0 - sl2 * 2.6 * o.inner;
+          var yRx = y0 + sl2 * 2.6 * o.inner;
+          var bulge = u * .07 * clamp(o.topEff * 4, 0, 1);
+          var ctl = (yLx + yRx) / 2 + 2 * bulge;
+          ctx.fillStyle = lidFill;
+          ctx.beginPath();
+          ctx.moveTo(-ew * 1.3, -eh * 1.3);
+          ctx.lineTo(ew * 1.3, -eh * 1.3);
+          ctx.lineTo(ew * 1.3, yRx);
+          ctx.quadraticCurveTo(0, ctl, -ew * 1.3, yLx);
+          ctx.closePath();
+          ctx.fill();
+          ctx.strokeStyle = rgba(R0, clamp((o.topEff + Math.abs(cur.slant)) * 10, 0, 1) * .95);
+          ctx.lineWidth = rimW;
+          ctx.beginPath();
+          ctx.moveTo(ew * 1.3, yRx);
+          ctx.quadraticCurveTo(0, ctl, -ew * 1.3, yLx);
+          ctx.stroke();
+        }
+        if (cur.bot > .01) {
+          var Rb2 = ew * .8;
+          ctx.fillStyle = lidFill;
+          ctx.beginPath();
+          ctx.arc(0, eh / 2 + Rb2 * (1 - .5 * cur.bot), Rb2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = rgba(R0, clamp(cur.bot * 2, 0, 1) * .95);
+          ctx.lineWidth = rimW;
+          ctx.stroke();
+        }
+        if (o.lowFlat > .004) {
+          var yb = eh / 2 - o.lowFlat * eh;
+          ctx.fillStyle = lidFill;
+          ctx.fillRect(-ew * 1.3, yb, ew * 2.6, eh);
+          ctx.strokeStyle = rim;
+          ctx.lineWidth = rimW;
+          ctx.beginPath();
+          ctx.moveTo(-ew * 1.3, yb);
+          ctx.quadraticCurveTo(0, yb - u * .06, ew * 1.3, yb);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+  }
+
+  var last = performance.now();
+  function frame(now) {
+    var dt = Math.min(.05, (now - last) / 1000);
+    last = now;
+    if (demo && now > demoNext) {
+      var n = ORDER[(ORDER.indexOf(current) + 1) % ORDER.length];
+      setMood(n);
+      demoNext = now + 3200;
+    }
+    draw(now, dt);
+    requestAnimationFrame(frame);
+  }
+
+  function showBar() {
+    bar.classList.remove('off');
+    clearTimeout(barTimer);
+    barTimer = setTimeout(function () { if (document.activeElement !== say) bar.classList.add('off'); }, 6000);
+  }
+  function wake() {
+    try {
+      if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(function () {});
+    } catch (e) {}
+  }
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) wake(); });
+
+  function point(e) {
+    var r = cv.getBoundingClientRect();
+    ptrX = clamp(((e.clientX - r.left) / r.width - .5) * 2.2, -1, 1);
+    ptrY = clamp(((e.clientY - r.top) / r.height - .5) * 2.2, -1, 1);
+    ptrUntil = performance.now() + 3500;
+  }
+  cv.addEventListener('pointerdown', function (e) { point(e); wake(); });
+  cv.addEventListener('pointermove', function (e) { if (e.buttons || e.pointerType === 'touch') point(e); });
+  cv.addEventListener('click', function () {
+    if (bar.classList.contains('off')) showBar();
+    else { clearTimeout(barTimer); bar.classList.add('off'); }
+  });
+  bar.addEventListener('pointerdown', showBar);
+
+  function chip(label, attrs, onclick) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    for (var k in attrs) b.setAttribute(k, attrs[k]);
+    b.addEventListener('click', onclick);
+    row.appendChild(b);
+    return b;
+  }
+  ORDER.forEach(function (name) {
+    chip(MOODS[name].label, { 'data-mood': name, 'aria-pressed': name === 'neutral' ? 'true' : 'false' }, function () {
+      demo = false; demoBtn.setAttribute('aria-pressed', 'false');
+      setMood(name);
+    });
+  });
+  var sep = document.createElement('span'); sep.className = 'sep'; row.appendChild(sep);
+
+  var demoBtn = chip('Auto moods', { 'aria-pressed': 'false' }, function () {
+    demo = !demo;
+    demoBtn.setAttribute('aria-pressed', demo ? 'true' : 'false');
+    demoNext = performance.now() + 200;
+  });
+
+  chip('Say hello', {}, function () {
+    wake();
+    var id = ++talkId;
+    if (talkPrev === null) talkPrev = current;
+    demo = false; demoBtn.setAttribute('aria-pressed', 'false');
+    setMood('happy');
+    var done = function () {
+      if (id !== talkId) return;
+      talking = false; clearTimeout(talkFail);
+      setTimeout(function () {
+        if (id !== talkId || talkPrev === null) return;
+        setMood(talkPrev); talkPrev = null;
+      }, 700);
+    };
+    talking = true;
+    clearTimeout(talkFail);
+    talkFail = setTimeout(done, 9000);
+    try {
+      var u = new SpeechSynthesisUtterance('Hello Adam. I am Jarvis. I can see you.');
+      u.onend = done; u.onerror = done;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(u);
+    } catch (e) {
+      clearTimeout(talkFail);
+      talkFail = setTimeout(done, 2500);
+    }
+  });
+
+  if (document.fullscreenEnabled) {
+    chip('Fullscreen', {}, function () {
+      try {
+        var p = document.documentElement.requestFullscreen();
+        if (p && p.catch) p.catch(function () {});
+      } catch (e) {}
+    });
+  }
+
+
+  // ---- Brain: Gemini answers, the browser listens and speaks ----
+  // Edit PERSONA to change who Jarvis is.
+  var PERSONA = 'You are Jarvis, a small desktop robot built from cardboard by your friend Adam. Your face is a pair of animated eyes on a phone screen and your answers are spoken aloud. '
+    + 'Be warm, quick and a little witty. Answer in one or two short sentences with no markdown, no emojis and no lists. '
+    + 'Reply in the language the person used (English, French or Arabic). '
+    + 'Choose the eye expression that fits what you are saying right now.';
+  var GEMINI = 'https://generativelanguage.googleapis.com/v1beta/';
+  var DEFAULT_MODEL = 'models/gemini-flash-lite-latest';
+
+  var chat = document.getElementById('chat'), say = document.getElementById('say'), sub = document.getElementById('sub');
+  var panel = document.getElementById('settings'), keyEl = document.getElementById('key'), modelEl = document.getElementById('model'), smsg = document.getElementById('smsg');
+  var hist = [], busy = false, subT = 0, calmT = 0;
+  var listening = false, rec = null, langs = ['en-US', 'fr-FR', 'ar-SA'], langNames = ['EN', 'FR', 'AR'], langI = 0;
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  function store(k, v) { try { if (v === undefined) return localStorage.getItem('jarvis.' + k); localStorage.setItem('jarvis.' + k, v); } catch (e) {} return null; }
+  var apiKey = store('key') || '';
+  var model = store('model') || DEFAULT_MODEL;
+  langI = Math.max(0, parseInt(store('lang') || '0', 10) || 0) % langs.length;
+
+  function showSub(text) { clearTimeout(subT); sub.textContent = text; sub.classList.remove('fade'); }
+  function fadeSub(ms) { clearTimeout(subT); subT = setTimeout(function () { sub.classList.add('fade'); }, ms); }
+
+  // listening
+  function stopRec() { if (rec) { var r = rec; rec = null; r.onend = null; try { r.abort(); } catch (e) {} } }
+  function startListen() {
+    if (!listening || rec || busy || talking) return;
+    if (!SR) { listening = false; syncListen(); showSub('This browser cannot listen. Type instead, or try Safari or Chrome.'); fadeSub(6000); return; }
+    var r = new SR();
+    rec = r;
+    r.lang = langs[langI]; r.continuous = false; r.interimResults = false;
+    r.onresult = function (e) {
+      var t = e.results[0] && e.results[0][0] ? e.results[0][0].transcript.trim() : '';
+      if (t && !busy) ask(t);
+    };
+    r.onerror = function (e) {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        listening = false; syncListen(); showSub('Microphone permission is blocked. Allow it in the browser settings.'); fadeSub(7000);
+      }
+    };
+    r.onend = function () { if (rec === r) rec = null; if (listening && !busy && !talking) setTimeout(startListen, 500); };
+    try { r.start(); } catch (e) { rec = null; }
+  }
+  var listenBtn = null, langBtn = null;
+  function syncListen() {
+    if (listenBtn) listenBtn.setAttribute('aria-pressed', listening ? 'true' : 'false');
+    if (!listening) stopRec();
+  }
+
+  // speaking
+  function speak(text, mood, lang) {
+    var id = ++talkId;
+    talkPrev = null;
+    clearTimeout(calmT);
+    stopRec();
+    setMood(mood);
+    talking = true;
+    clearTimeout(talkFail);
+    var done = function () {
+      if (id !== talkId) return;
+      talking = false; busy = false; clearTimeout(talkFail);
+      fadeSub(3500);
+      calmT = setTimeout(function () { if (id === talkId && !talking) setMood('neutral'); }, 6000);
+      if (listening) setTimeout(startListen, 700);
+    };
+    talkFail = setTimeout(done, Math.max(4000, text.length * 110));
+    try {
+      var u = new SpeechSynthesisUtterance(text);
+      u.lang = { en: 'en-US', fr: 'fr-FR', ar: 'ar-SA' }[lang] || 'en-US';
+      u.onend = done; u.onerror = done;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(u);
+    } catch (e) {
+      clearTimeout(talkFail);
+      talkFail = setTimeout(done, 3000);
+    }
+  }
+  function fail(msg) {
+    busy = false;
+    setMood('sympathy');
+    showSub(msg);
+    fadeSub(7000);
+    calmT = setTimeout(function () { setMood('neutral'); if (listening) startListen(); }, 7000);
+  }
+
+  // thinking
+  function callGemini(q) {
+    var contents = hist.concat([{ role: 'user', parts: [{ text: q }] }]);
+    var body = {
+      systemInstruction: { parts: [{ text: PERSONA + ' Reply with JSON only, in this exact shape: {"reply": "<what you say>", "mood": "<one of: ' + ORDER.join(', ') + '>", "lang": "<en, fr or ar>"}.' }] },
+      contents: contents,
+      generationConfig: { responseMimeType: 'application/json', temperature: 0.9, maxOutputTokens: 400 }
+    };
+    return fetch(GEMINI + model + ':generateContent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+      body: JSON.stringify(body)
+    }).then(function (res) {
+      if (!res.ok) { var err = new Error('http'); err.status = res.status; throw err; }
+      return res.json();
+    }).then(function (data) {
+      var parts = data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
+      var txt = parts ? parts.map(function (p) { return p.text || ''; }).join('') : '';
+      txt = txt.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+      return { raw: txt, json: JSON.parse(txt) };
+    });
+  }
+  function ask(q) {
+    wake();
+    demo = false; demoBtn.setAttribute('aria-pressed', 'false');
+    stopRec();
+    if (!apiKey) { fail('I need my brain key first. Open Settings and paste your Gemini key.'); return; }
+    busy = true;
+    clearTimeout(calmT);
+    talkId++; talking = false;
+    try { window.speechSynthesis.cancel(); } catch (e) {}
+    setMood('thinking');
+    showSub('...');
+    callGemini(q).then(function (out) {
+      var r = out.json || {};
+      var reply = String(r.reply || '').slice(0, 400).trim();
+      if (!reply) { fail('I had nothing to say. Try again.'); return; }
+      var mood = MOODS[r.mood] ? r.mood : 'smile';
+      var lang = /^(en|fr|ar)$/.test(r.lang) ? r.lang : 'en';
+      hist.push({ role: 'user', parts: [{ text: q }] }, { role: 'model', parts: [{ text: out.raw }] });
+      if (hist.length > 16) hist = hist.slice(-16);
+      showSub(reply);
+      speak(reply, mood, lang);
+    }).catch(function (err) {
+      var s = err && err.status;
+      if (s === 429) fail('I hit my free limit for now. Try again in a minute, or tomorrow if it was the daily limit.');
+      else if (s === 400 || s === 403) fail('Google rejected my key. Check it in Settings.');
+      else if (s === 404) fail('That model is not available. Press Load models in Settings and pick another.');
+      else if (err && err.name === 'SyntaxError') fail('My answer came out garbled. Try again.');
+      else fail('I could not reach my brain. Check the internet connection.');
+    });
+  }
+  chat.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var q = say.value.trim();
+    if (!q || busy) return;
+    say.value = '';
+    showBar();
+    ask(q);
+  });
+  say.addEventListener('focus', function () { showBar(); });
+
+  // settings
+  function fillModels(list, chosen) {
+    modelEl.innerHTML = '';
+    list.forEach(function (n) {
+      var o = document.createElement('option');
+      o.value = n; o.textContent = n.replace('models/', '');
+      modelEl.appendChild(o);
+    });
+    if (chosen && list.indexOf(chosen) < 0) { var o2 = document.createElement('option'); o2.value = chosen; o2.textContent = chosen.replace('models/', ''); modelEl.insertBefore(o2, modelEl.firstChild); }
+    modelEl.value = chosen || list[0];
+  }
+  function openSettings() {
+    keyEl.value = apiKey;
+    if (!modelEl.options.length) fillModels([DEFAULT_MODEL], model); else modelEl.value = model;
+    smsg.textContent = '';
+    panel.hidden = false;
+  }
+  document.getElementById('close').addEventListener('click', function () { panel.hidden = true; });
+  document.getElementById('save').addEventListener('click', function () {
+    apiKey = keyEl.value.trim(); model = modelEl.value || DEFAULT_MODEL;
+    store('key', apiKey); store('model', model);
+    smsg.textContent = apiKey ? 'Saved. Jarvis is ready.' : 'Saved without a key.';
+    if (apiKey) setTimeout(function () { panel.hidden = true; }, 700);
+  });
+  document.getElementById('load').addEventListener('click', function () {
+    var k = keyEl.value.trim();
+    if (!k) { smsg.textContent = 'Paste your key first.'; return; }
+    smsg.textContent = 'Loading models...';
+    fetch(GEMINI + 'models?pageSize=200', { headers: { 'x-goog-api-key': k } }).then(function (res) {
+      if (!res.ok) throw new Error('http ' + res.status);
+      return res.json();
+    }).then(function (data) {
+      var names = (data.models || []).filter(function (m) {
+        return (m.supportedGenerationMethods || []).indexOf('generateContent') >= 0 && /gemini/i.test(m.name) && !/embed|tts|image|live|audio|robotics|computer|thinking-exp/i.test(m.name);
+      }).map(function (m) { return m.name; });
+      names.sort(function (x, y) {
+        var rx = /flash-lite/.test(x) ? 0 : /flash/.test(x) ? 1 : 2, ry = /flash-lite/.test(y) ? 0 : /flash/.test(y) ? 1 : 2;
+        return rx - ry || x.localeCompare(y);
+      });
+      if (!names.length) { smsg.textContent = 'The key works but no chat models were listed.'; return; }
+      fillModels(names, names.indexOf(model) >= 0 ? model : names[0]);
+      smsg.textContent = 'Found ' + names.length + ' models. A Flash Lite one is the best fit for the free tier.';
+    }).catch(function () { smsg.textContent = 'That did not work. Check the key and the internet connection.'; });
+  });
+
+  // controls
+  listenBtn = chip('Listen', { 'aria-pressed': 'false' }, function () {
+    listening = !listening;
+    syncListen();
+    if (listening) { wake(); startListen(); }
+  });
+  langBtn = chip('Lang ' + langNames[langI], {}, function () {
+    langI = (langI + 1) % langs.length;
+    store('lang', String(langI));
+    langBtn.textContent = 'Lang ' + langNames[langI];
+    if (listening) { stopRec(); setTimeout(startListen, 300); }
+  });
+  chip('Settings', {}, openSettings);
+  if (!apiKey) setTimeout(function () { showSub('Open Settings and paste your Gemini key so I can think.'); fadeSub(8000); }, 800);
+
+  resize();
+  setMood('neutral');
+  showBar();
+  setTimeout(function () { hint.classList.add('fade'); }, 7000);
+  requestAnimationFrame(function (n) { last = n; frame(n); });
+})();
+</script>
+
+</body>
+</html>
