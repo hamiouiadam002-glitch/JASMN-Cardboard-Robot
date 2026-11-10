@@ -730,7 +730,38 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     demoNext = performance.now() + 200;
   });
 
+  // iPhone only lets a page speak after a tap, and forgets that when the app goes to the background.
+  // So: unlock the voice silently on taps, and when the app is left, stop listening so the next Listen tap unlocks it again.
+  var spOK = false;
+  function unlockSpeech() {
+    try {
+      var ss = window.speechSynthesis; if (!ss) return;
+      spOK = true;
+      ss.resume();
+      var u = new SpeechSynthesisUtterance(' '); u.volume = 0; u.rate = 2;
+      ss.speak(u);
+    } catch (e) {}
+  }
+  function sayNow(u) {
+    var ss = window.speechSynthesis;
+    try { ss.resume(); } catch (e) {}
+    if (ss.speaking || ss.pending) { ss.cancel(); setTimeout(function () { ss.speak(u); }, 90); } else { ss.speak(u); }
+  }
+  ['touchend', 'click'].forEach(function (ev) {
+    document.addEventListener(ev, function () { if (!spOK && !talking) unlockSpeech(); }, true);
+  });
+  function leftApp() {
+    spOK = false;
+    if (listening) { listening = false; syncListen(); }
+    try { window.speechSynthesis.cancel(); } catch (e) {}
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) leftApp();
+    else if (!spOK) { showSub('Tap Listen to talk to me again.'); fadeSub(4000); }
+  });
+  window.addEventListener('pagehide', leftApp);
   chip('Say hello', {}, function () {
+    unlockSpeech();
     wake();
     var id = ++talkId;
     if (talkPrev === null) talkPrev = current;
@@ -750,8 +781,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     try {
       var u = new SpeechSynthesisUtterance('Hello Adam. I am Jasmine. I can see you.');
       u.onend = done; u.onerror = done;
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(u);
+      sayNow(u);
     } catch (e) {
       clearTimeout(talkFail);
       talkFail = setTimeout(done, 2500);
@@ -929,8 +959,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       var u = new SpeechSynthesisUtterance(text);
       u.lang = { en: 'en-US', fr: 'fr-FR', ar: 'ar-SA' }[lang] || 'en-US';
       u.onend = done; u.onerror = done;
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(u);
+      sayNow(u);
     } catch (e) {
       clearTimeout(talkFail);
       talkFail = setTimeout(done, 3000);
@@ -1101,6 +1130,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   // controls
   listenBtn = chip('Listen', { 'aria-pressed': 'false' }, function () {
+    unlockSpeech();
     listening = !listening;
     syncListen();
     if (!listening) return;
