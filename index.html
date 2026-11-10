@@ -143,6 +143,11 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       <option value="on">On (best with earphones)</option>
       <option value="off">Off</option>
     </select>
+    <label for="web">Let her search the web (Groq only)</label>
+    <select id="web">
+      <option value="on">On</option>
+      <option value="off">Off</option>
+    </select>
     <div class="btns">
       <button type="button" id="load">Load models</button>
       <button type="button" id="save" aria-pressed="true">Save</button>
@@ -906,6 +911,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     + 'Be warm and friendly but get straight to the point. Say the answer first, in one short sentence (two at most), with no filler, no preamble, no markdown, no emojis and no lists. Do not ask a question back unless you truly need one. Keep any humor very short. '
     + 'Reply in the language the person used (English, French or Arabic). '
     + 'Choose the eye expression that fits what you are saying right now (use scared when something frightening is mentioned or you are startled). If the message says you were just woken by a loud shout and got an electric shock, react to it in character in one short sentence, startled, a bit grumpy or funny, then answer. '
+    + 'You cannot browse the internet yourself. When live information from a web search is given to you, use it. Never invent live facts such as the time, weather, news, prices or scores; if you cannot check them, say so honestly in one short sentence. '
     + 'You also have a body that can move. Pick an action only when it feels natural: wave when greeting or saying goodbye, shake (your head turns side to side) when you disagree or say no, look_left or look_right when something makes you curious, turn_left or turn_right to turn your whole body toward something, shrug when you do not know, raise_arms or flap when you are very excited. You cannot nod. Otherwise use none.';
   var GEMINI = 'https://generativelanguage.googleapis.com/v1beta/';
   var PROVIDERS = {
@@ -937,7 +943,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   // ---- THE EAR (piece 3) ----
   // With a Groq key, the microphone stays open while Listen is on. Speech is cut out by volume, with a short pre-roll so no first word is lost,
   // then sent to Groq Whisper and comes back as text. Without a Groq key, the old browser listening is used instead.
-  var waitEl = document.getElementById('wait'), intEl = document.getElementById('interrupt');
+  var waitEl = document.getElementById('wait'), intEl = document.getElementById('interrupt'), webSel = document.getElementById('web');
   var WAIT_MS = parseInt(store('wait') || '1500', 10) || 1500;     // silence needed after you stop before she answers
   var INTERRUPT = store('interrupt') !== 'off';                      // you can talk over her
   var LOUD_RMS = 0.30;                                               // a shout this loud wakes her with an electric shock (lower = more sensitive)
@@ -1203,11 +1209,12 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       return { raw: txt, json: JSON.parse(txt) };
     });
   }
-  function callOpenAI(q, fast) {
+  function callOpenAI(q, fast, web) {
     var msgs = [{ role: 'system', content: PERSONA + ' Reply with JSON only, in this exact shape: {"reply": "<what you say>", "mood": "<one of: ' + AIMOODS.join(', ') + '>", "lang": "<en, fr or ar>", "action": "<one of: ' + ACTIONS.join(', ') + '>"}.' }];
     hist.forEach(function (h) { msgs.push({ role: h.role === 'model' ? 'assistant' : 'user', content: h.parts[0].text }); });
     msgs.push({ role: 'user', content: q });
-    var body = { model: fast ? FAST_MODEL : model, messages: msgs, temperature: 0.8, max_tokens: fast ? 140 : 320, response_format: { type: 'json_object' } };
+    var body = { model: web ? WEB_MODEL : (fast ? FAST_MODEL : model), messages: msgs, temperature: 0.8, max_tokens: web ? 400 : (fast ? 140 : 320) };
+    if (!web) body.response_format = { type: 'json_object' };
     return fetch(PROVIDERS[provider].base + 'chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
@@ -1224,10 +1231,16 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     }).then(function (data) {
       var txt = data && data.choices && data.choices[0] && data.choices[0].message ? (data.choices[0].message.content || '') : '';
       txt = txt.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+      if (web) {
+        var mm = txt.match(/\{[\s\S]*\}/);
+        if (mm) { try { return { raw: mm[0], json: JSON.parse(mm[0]) }; } catch (e) {} }
+        var jj = { reply: cleanSpoken(txt), mood: 'smile', lang: 'en', action: 'none' };
+        return { raw: JSON.stringify(jj), json: jj };
+      }
       return { raw: txt, json: JSON.parse(txt) };
     });
   }
-  function callBrain(q, fast) { return provider === 'gemini' ? callGemini(q) : callOpenAI(q, fast); }
+  function callBrain(q, fast, web) { return provider === 'gemini' ? callGemini(q) : callOpenAI(q, fast, web); }
   // ---- instant answers: no internet needed for greetings, thanks, goodbyes ----
   function norm(q) { return q.toLowerCase().replace(/[^\p{L}\p{N} ]/gu, ' ').replace(/\s+/g, ' ').trim(); }
   var NM = '(jasmn|jasmin|jasmine|yasmin|yasmine|yasmeen|jazmin|ياسمين)';
@@ -1253,9 +1266,48 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     else if (RE_NIGHT.test(n)) r = { reply: pick(L.night), mood: 'sleepy', action: 'lower_arms' };
     else if (RE_BYE.test(n)) r = { reply: pick(L.bye), mood: 'smile', action: 'wave' };
     else if (RE_HOW.test(n)) r = { reply: pick(L.how), mood: 'happy', action: 'none' };
+    if (!r) { var tr = timeReply(n); if (tr) r = { reply: tr, mood: 'smile', action: 'none' }; lc = 'en'; }
     if (r) r.lang = lc;
     return r;
   }
+  // ---- the clock: time and date questions are answered locally, instantly and exactly ----
+  var TZ = { 'arizona': 'America/Phoenix', 'phoenix': 'America/Phoenix', 'new york': 'America/New_York', 'florida': 'America/New_York', 'miami': 'America/New_York', 'washington': 'America/New_York', 'chicago': 'America/Chicago', 'texas': 'America/Chicago', 'denver': 'America/Denver', 'los angeles': 'America/Los_Angeles', 'california': 'America/Los_Angeles', 'san francisco': 'America/Los_Angeles', 'seattle': 'America/Los_Angeles', 'las vegas': 'America/Los_Angeles', 'hawaii': 'Pacific/Honolulu', 'alaska': 'America/Anchorage', 'toronto': 'America/Toronto', 'canada': 'America/Toronto', 'vancouver': 'America/Vancouver', 'mexico': 'America/Mexico_City', 'sao paulo': 'America/Sao_Paulo', 'brazil': 'America/Sao_Paulo', 'buenos aires': 'America/Argentina/Buenos_Aires', 'argentina': 'America/Argentina/Buenos_Aires',
+    'london': 'Europe/London', 'uk': 'Europe/London', 'england': 'Europe/London', 'paris': 'Europe/Paris', 'france': 'Europe/Paris', 'berlin': 'Europe/Berlin', 'germany': 'Europe/Berlin', 'madrid': 'Europe/Madrid', 'spain': 'Europe/Madrid', 'rome': 'Europe/Rome', 'italy': 'Europe/Rome', 'amsterdam': 'Europe/Amsterdam', 'brussels': 'Europe/Brussels', 'lisbon': 'Europe/Lisbon', 'portugal': 'Europe/Lisbon', 'moscow': 'Europe/Moscow', 'russia': 'Europe/Moscow', 'istanbul': 'Europe/Istanbul', 'turkey': 'Europe/Istanbul',
+    'casablanca': 'Africa/Casablanca', 'rabat': 'Africa/Casablanca', 'morocco': 'Africa/Casablanca', 'marrakech': 'Africa/Casablanca', 'tunis': 'Africa/Tunis', 'tunisia': 'Africa/Tunis', 'algiers': 'Africa/Algiers', 'algeria': 'Africa/Algiers', 'cairo': 'Africa/Cairo', 'egypt': 'Africa/Cairo', 'lagos': 'Africa/Lagos', 'nigeria': 'Africa/Lagos', 'nairobi': 'Africa/Nairobi', 'kenya': 'Africa/Nairobi', 'johannesburg': 'Africa/Johannesburg', 'south africa': 'Africa/Johannesburg',
+    'dubai': 'Asia/Dubai', 'abu dhabi': 'Asia/Dubai', 'uae': 'Asia/Dubai', 'riyadh': 'Asia/Riyadh', 'saudi arabia': 'Asia/Riyadh', 'mecca': 'Asia/Riyadh', 'doha': 'Asia/Qatar', 'qatar': 'Asia/Qatar', 'delhi': 'Asia/Kolkata', 'mumbai': 'Asia/Kolkata', 'india': 'Asia/Kolkata', 'karachi': 'Asia/Karachi', 'pakistan': 'Asia/Karachi', 'bangkok': 'Asia/Bangkok', 'thailand': 'Asia/Bangkok', 'singapore': 'Asia/Singapore', 'hong kong': 'Asia/Hong_Kong', 'beijing': 'Asia/Shanghai', 'shanghai': 'Asia/Shanghai', 'china': 'Asia/Shanghai', 'tokyo': 'Asia/Tokyo', 'japan': 'Asia/Tokyo', 'seoul': 'Asia/Seoul', 'korea': 'Asia/Seoul', 'sydney': 'Australia/Sydney', 'melbourne': 'Australia/Melbourne', 'australia': 'Australia/Sydney', 'auckland': 'Pacific/Auckland', 'new zealand': 'Pacific/Auckland', 'utc': 'UTC', 'gmt': 'UTC' };
+  var TZKEYS = Object.keys(TZ).sort(function (a, b) { return b.length - a.length; });
+  function timeReply(n) {
+    var words = n.split(' ');
+    if (words.length > 14) return null;
+    var asksTime = /\btime\b/.test(n) && /\b(what|whats|tell|current|now|is it)\b/.test(n) && !/\b(times|timer|difference|zone|long|take|spend|waste|do you|does|open|close|start|starts|begin|end|ends|movie|game|match|class|flight|train|bus)\b/.test(n);
+    var asksDate = /^(what )?(is )?(the )?(today s )?(date|day)( is it| today| is today| it is today)?( today)?$/.test(n) || /^what day is it( today)?$/.test(n) || /^what is today s date$/.test(n);
+    if (!asksTime && !asksDate) return null;
+    var now = new Date(), opts = { timeZone: undefined }, place = '';
+    if (asksTime) {
+      var m = n.match(/\bin (.+?)( right now| now| currently| today| please)*$/);
+      if (m) {
+        var want = m[1], key = null, i;
+        for (i = 0; i < TZKEYS.length; i++) { if (want.indexOf(TZKEYS[i]) >= 0) { key = TZKEYS[i]; break; } }
+        if (!key) return null;                                   // unknown place: let the web search handle it
+        opts.timeZone = TZ[key]; place = key.replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+        if (key === 'uk') place = 'the UK'; if (key === 'uae') place = 'the UAE'; if (key === 'utc') place = 'UTC'; if (key === 'gmt') place = 'GMT';
+      }
+      var tstr = new Intl.DateTimeFormat('en-US', { timeZone: opts.timeZone, hour: 'numeric', minute: '2-digit' }).format(now);
+      var wd = new Intl.DateTimeFormat('en-US', { timeZone: opts.timeZone, weekday: 'long' }).format(now);
+      var wl = new Intl.DateTimeFormat('en-US', { weekday: 'long' }).format(now);
+      return 'It is ' + tstr + (place && wd !== wl ? ', ' + wd : '') + (place ? ' in ' + place : '') + '.';
+    }
+    return 'Today is ' + new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(now) + '.';
+  }
+  // questions that need live or looked-up facts go to Groq's web-search model
+  var WEB_ON = store('web') !== 'off', webOK = true, WEB_MODEL = 'groq/compound-mini';
+  var WEBQ = /\b(right now|currently|current|today|tonight|tomorrow|yesterday|latest|newest|recent|recently|news|weather|forecast|temperature|scores?|stocks?|price of|exchange rate|who won|president of|prime minister|release date|trending|open now|this week|this year|this month|202\d)\b|\b(how (tall|high|big|far|old|long|many|much|heavy|fast|deep)|population of|height of|distance (from|to|between)|when (was|did|is)|where is|who (is|was|are|were)|what is the (height|population|capital|distance|price|age|length|speed|weight)|capital of)\b|météo|aujourd'hui|actualité|maintenant|الطقس|اليوم|الآن|أخبار/i;
+  var ABOUTHER = /\b(who|what|how) (are|is|r) (you|u)\b|\b(who|what) (made|built|created|is your)\b|your name|yourself/i;
+  function needsWeb(q) { return WEB_ON && webOK && provider === 'groq' && WEBQ.test(q) && !ABOUTHER.test(q); }
+  function cleanSpoken(t) {
+    return String(t || '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/https?:\/\/\S+/g, '').replace(/\[\d+\]/g, '').replace(/[*#_`>]/g, '').replace(/\s+/g, ' ').trim();
+  }
+
   // simple things go to a small fast model, anything that needs real thinking goes to the chosen big model
   var HARD = /\b(why|how|explain|difference|compare|calculate|solve|write|story|poem|plan|code|translate|summar\w*|should i|what if|tell me about|teach|describe|pourquoi|comment|expliqu\w*|raconte|écris|ecris)\b|كيف|لماذا|اشرح|\d\s*[-+*\/x×÷]\s*\d/i;
   function isSimple(q) { return q.trim().split(/\s+/).length <= 9 && !HARD.test(q); }
@@ -1282,13 +1334,18 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     try { window.speechSynthesis.cancel(); } catch (e) {}
     var my = ++reqId;
     setMood(opts.hear || 'thinking');
-    showSub(opts.hear ? '\u201c' + q + '\u201d' : '...');
+    var web = needsWeb(q);
+    showSub(web ? 'Let me check...' : (opts.hear ? '\u201c' + q + '\u201d' : '...'));
     clearTimeout(thinkT);
     thinkT = setTimeout(function () { if (my === reqId && busy && !talking) setMood('thinking'); }, 700);
-    var fast = provider === 'groq' && fastOK && isSimple(q);
+    var fast = !web && provider === 'groq' && fastOK && isSimple(q);
     var prompt = opts.note === 'loud' ? q + '\n(You were just woken by a loud shout and got an electric shock. React to that briefly, in character, then answer.)' : q;
-    var call = callBrain(prompt, fast).catch(function (err) {
-      if (fast && err && err.status) { if (err.status !== 429) fastOK = false; return callBrain(prompt, false); }
+    var call = callBrain(prompt, fast, web).catch(function (err) {
+      if (web && err && err.status) {                                // search unavailable: answer without it, and say so if it matters
+        if (err.status !== 429) webOK = false;
+        return callBrain(prompt + '\n(Live web search is unavailable right now. If this needs current information, say honestly that you cannot check it.)', false, false);
+      }
+      if (fast && err && err.status) { if (err.status !== 429) fastOK = false; return callBrain(prompt, false, false); }
       throw err;
     });
     call.then(function (out) {
@@ -1346,7 +1403,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     document.getElementById('keyLabel').textContent = PROVIDERS[pv].name + ' API key';
     fillModels([DEFAULT_MODEL], model);
     smsg.textContent = '';
-    waitEl.value = String(WAIT_MS); intEl.value = INTERRUPT ? 'on' : 'off';
+    waitEl.value = String(WAIT_MS); intEl.value = INTERRUPT ? 'on' : 'off'; webSel.value = WEB_ON ? 'on' : 'off';
   }
   provEl.addEventListener('change', function () { loadProv(provEl.value); });
   function openSettings() {
@@ -1360,6 +1417,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     store('provider', provider); store('key.' + provider, apiKey); store('model.' + provider, model);
     WAIT_MS = parseInt(waitEl.value, 10) || 1500; INTERRUPT = intEl.value !== 'off';
     store('wait', String(WAIT_MS)); store('interrupt', INTERRUPT ? 'on' : 'off');
+    WEB_ON = webSel.value !== 'off'; store('web', WEB_ON ? 'on' : 'off'); webOK = true;
     smsg.textContent = apiKey ? 'Saved. JASMN is ready.' : 'Saved without a key.';
     if (apiKey) setTimeout(function () { panel.hidden = true; }, 700);
   });
