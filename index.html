@@ -687,6 +687,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     barTimer = setTimeout(function () { if (document.activeElement !== say) bar.classList.add('off'); }, 6000);
   }
   function wake() {
+    noteActive();
     try {
       if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(function () {});
     } catch (e) {}
@@ -799,6 +800,31 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 
   // ---- Brain: Gemini answers, the browser listens and speaks ----
+  // ---- IDLE LIFE (piece 6) ----
+  // After a quiet spell she gets sleepy, then falls asleep. Any tap, key press or spoken message wakes her up.
+  // Change these two numbers (milliseconds) to make her sleepier or more alert.
+  var IDLE_SLEEPY = 40000, IDLE_SLEEP = 70000;
+  var lastActive = Date.now(), autoStage = 0, wakeT = 0;   // autoStage: 0 awake, 1 sleepy, 2 asleep (set by the timer, not by you)
+  function noteActive() {
+    lastActive = Date.now();
+    if (autoStage > 0) {
+      autoStage = 0;
+      setMood('surprised');
+      clearTimeout(wakeT);
+      wakeT = setTimeout(function () { if (current === 'surprised' && !talking && !busy) setMood('neutral'); }, 1400);
+    }
+  }
+  ['touchend', 'click', 'keydown'].forEach(function (ev) { document.addEventListener(ev, noteActive, true); });
+  setInterval(function () {
+    if (demo || talking || busy || document.hidden) return;
+    var idle = Date.now() - lastActive;
+    if (idle > IDLE_SLEEP) {
+      if (autoStage < 2 && !(current === 'sleeping' && autoStage === 0)) { autoStage = 2; setMood('sleeping'); sendAction('lower_arms'); }
+    } else if (idle > IDLE_SLEEPY) {
+      if (autoStage === 0 && current !== 'sleeping') { autoStage = 1; setMood('sleepy'); }
+    }
+  }, 2000);
+
   // ---- BODY ACTIONS (piece 9) ----
   // The phone only sends the NAME of a gesture. The ESP32 holds the choreography and the safety limits.
   // Servos: base = turns the whole body left/right (horizontal), neck = turns the head left/right (horizontal),
