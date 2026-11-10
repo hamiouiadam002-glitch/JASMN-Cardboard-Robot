@@ -799,9 +799,88 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   function fadeSub(ms) { clearTimeout(subT); subT = setTimeout(function () { sub.classList.add('fade'); }, ms); }
 
   // listening
-  function stopRec() { if (rec) { var r = rec; rec = null; r.onend = null; try { r.abort(); } catch (e) {} } }
+  function stopRec() { if (rec) { var r = rec; rec = null; r.onend = null; try { r.abort(); } catch (e) {} } whCancel(); }
+
+  // cloud ear: used when the browser's own speech recognition is blocked (iPhone home screen apps).
+  // It records from the microphone and sends the short clip to Groq Whisper.
+  var useWhisper = false, whStream = null, whCtx = null, whRec = null, whTimer = 0, whStarting = false;
+  function whKey() { return store('key.groq') || (provider === 'groq' ? apiKey : ''); }
+  function whCancel() { clearInterval(whTimer); if (whRec) { var m = whRec; whRec = null; m.onstop = null; try { m.stop(); } catch (e) {} } }
+  function whRelease() {
+    whCancel();
+    if (whStream) { whStream.getTracks().forEach(function (t) { t.stop(); }); whStream = null; }
+    if (whCtx) { try { whCtx.close(); } catch (e) {} whCtx = null; }
+  }
+  function whTranscribe(blob) {
+    var key = whKey();
+    if (!key) { showSub('Voice needs a Groq key. Open Settings, pick Groq and paste it.'); fadeSub(7000); listening = false; syncListen(); return; }
+    var fd = new FormData();
+    var ext = /mp4/.test(blob.type) ? 'm4a' : (/webm/.test(blob.type) ? 'webm' : 'wav');
+    fd.append('file', blob, 'speech.' + ext);
+    fd.append('model', 'whisper-large-v3-turbo');
+    fd.append('language', langs[langI].slice(0, 2));
+    fd.append('response_format', 'json');
+    fd.append('temperature', '0');
+    fetch('https://api.groq.com/openai/v1/audio/transcriptions', { method: 'POST', headers: { 'Authorization': 'Bearer ' + key }, body: fd })
+      .then(function (res) { if (!res.ok) throw new Error('error ' + res.status); return res.json(); })
+      .then(function (d) {
+        var t = (d && d.text ? d.text : '').trim();
+        if (t && !busy) ask(t); else if (listening && !busy && !talking) startListen();
+      })
+      .catch(function (e) { showSub('Could not understand the audio (' + (e && e.message ? e.message : 'error') + ').'); fadeSub(5000); if (listening) setTimeout(startListen, 1500); });
+  }
+  function whListen() {
+    if (!listening || whRec || whStarting || busy || talking) return;
+    var go = function (stream) {
+      whStarting = false;
+      if (!listening) return;
+      whStream = stream;
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!whCtx) whCtx = new AC();
+      if (whCtx.state === 'suspended') whCtx.resume();
+      var an = whCtx.createAnalyser(); an.fftSize = 1024;
+      whCtx.createMediaStreamSource(stream).connect(an);
+      var buf = new Uint8Array(an.fftSize);
+      var mt = '';
+      if (window.MediaRecorder && MediaRecorder.isTypeSupported) { mt = MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : (MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : ''); }
+      var mr = mt ? new MediaRecorder(stream, { mimeType: mt }) : new MediaRecorder(stream);
+      var chunks = [], heard = false, t0 = Date.now(), lastLoud = 0, startSpeech = 0;
+      whRec = mr;
+      mr.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+      mr.onstop = function () {
+        clearInterval(whTimer);
+        if (whRec === mr) whRec = null;
+        if (!heard || !listening) { if (listening && !busy && !talking) setTimeout(startListen, 200); return; }
+        whTranscribe(new Blob(chunks, { type: mr.mimeType || mt || 'audio/mp4' }));
+      };
+      mr.start();
+      whTimer = setInterval(function () {
+        an.getByteTimeDomainData(buf);
+        var peak = 0, i;
+        for (i = 0; i < buf.length; i++) peak = Math.max(peak, Math.abs(buf[i] - 128));
+        var now = Date.now();
+        if (peak > 14) { if (!heard) startSpeech = now; heard = true; lastLoud = now; }
+        if ((heard && now - lastLoud > 1000) || (heard && now - startSpeech > 15000) || (!heard && now - t0 > 8000)) { clearInterval(whTimer); try { mr.stop(); } catch (e) {} }
+      }, 100);
+    };
+    if (whStream) { go(whStream); return; }
+    whStarting = true;
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(go).catch(function () {
+      whStarting = false; listening = false; syncListen();
+      showSub('Microphone is blocked. Close the app completely, reopen it and tap Listen again.'); fadeSub(8000);
+    });
+  }
+  // asks for the microphone on every Listen tap (the browser decides whether it shows the question)
+  function askMic() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return Promise.resolve();
+    return navigator.mediaDevices.getUserMedia({ audio: true }).then(function (st) {
+      if (useWhisper) whStream = st; else st.getTracks().forEach(function (t) { t.stop(); });
+    });
+  }
+
   function startListen() {
     if (!listening || rec || busy || talking) return;
+    if (useWhisper) { whListen(); return; }
     if (!SR) { listening = false; syncListen(); showSub('This browser cannot listen. Type instead, or try Safari or Chrome.'); fadeSub(6000); return; }
     var r = new SR();
     rec = r;
@@ -811,6 +890,11 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       if (t && !busy) ask(t);
     };
     r.onerror = function (e) {
+      if ((e.error === 'not-allowed' || e.error === 'service-not-allowed') && whKey() && navigator.mediaDevices && window.MediaRecorder) {
+        rec = null; useWhisper = true; showSub('Switching to the cloud ear...'); fadeSub(2500);
+        setTimeout(startListen, 300);
+        return;
+      }
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
         listening = false; syncListen(); showSub('Microphone permission is blocked. Allow it in the browser settings.'); fadeSub(7000);
       }
@@ -821,7 +905,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   var listenBtn = null, langBtn = null;
   function syncListen() {
     if (listenBtn) listenBtn.setAttribute('aria-pressed', listening ? 'true' : 'false');
-    if (!listening) stopRec();
+    if (!listening) { stopRec(); whRelease(); }
   }
 
   // speaking
@@ -1019,7 +1103,12 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   listenBtn = chip('Listen', { 'aria-pressed': 'false' }, function () {
     listening = !listening;
     syncListen();
-    if (listening) { wake(); startListen(); }
+    if (!listening) return;
+    wake();
+    askMic().then(function () { startListen(); }).catch(function () {
+      listening = false; syncListen();
+      showSub('Microphone is blocked for this app. Fully close it (swipe it away), reopen it and tap Listen again.'); fadeSub(9000);
+    });
   });
   langBtn = chip('Lang ' + langNames[langI], {}, function () {
     langI = (langI + 1) % langs.length;
