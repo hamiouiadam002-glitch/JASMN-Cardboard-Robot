@@ -121,7 +121,13 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <div id="settings" hidden>
   <div class="card">
     <h2>Brain settings</h2>
-    <label for="key">Gemini API key</label>
+    <label for="provider">Brain provider</label>
+    <select id="provider">
+      <option value="groq">Groq (free, fast)</option>
+      <option value="xai">xAI Grok</option>
+      <option value="gemini">Google Gemini</option>
+    </select>
+    <label for="key" id="keyLabel">API key</label>
     <input id="key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste your key here">
     <label for="model">Model</label>
     <select id="model"></select>
@@ -131,7 +137,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       <button type="button" id="close">Close</button>
     </div>
     <p id="smsg" aria-live="polite"></p>
-    <p class="note">Your key is stored only in this browser on this device and is sent only to Google. Press Load models after pasting it, pick a Flash Lite model, then Save.</p>
+    <p class="note">Your key is stored only in this browser on this device and is sent only to the provider you picked. Pick a provider, paste its key, press Load models, choose one, then Save.</p>
   </div>
 </div>
 
@@ -769,17 +775,24 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     + 'Reply in the language the person used (English, French or Arabic). '
     + 'Choose the eye expression that fits what you are saying right now.';
   var GEMINI = 'https://generativelanguage.googleapis.com/v1beta/';
-  var DEFAULT_MODEL = 'models/gemini-flash-lite-latest';
+  var PROVIDERS = {
+    groq:   { name: 'Groq',   base: 'https://api.groq.com/openai/v1/',  def: 'llama-3.3-70b-versatile' },
+    xai:    { name: 'xAI Grok', base: 'https://api.x.ai/v1/',           def: 'grok-4' },
+    gemini: { name: 'Google', base: GEMINI,                             def: 'models/gemini-flash-lite-latest' }
+  };
 
   var chat = document.getElementById('chat'), say = document.getElementById('say'), sub = document.getElementById('sub');
-  var panel = document.getElementById('settings'), keyEl = document.getElementById('key'), modelEl = document.getElementById('model'), smsg = document.getElementById('smsg');
+  var panel = document.getElementById('settings'), keyEl = document.getElementById('key'), modelEl = document.getElementById('model'), provEl = document.getElementById('provider'), smsg = document.getElementById('smsg');
   var hist = [], busy = false, subT = 0, calmT = 0;
   var listening = false, rec = null, langs = ['en-US', 'fr-FR', 'ar-SA'], langNames = ['EN', 'FR', 'AR'], langI = 0;
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   function store(k, v) { try { if (v === undefined) return localStorage.getItem('jarvis.' + k); localStorage.setItem('jarvis.' + k, v); } catch (e) {} return null; }
-  var apiKey = store('key') || '';
-  var model = store('model') || DEFAULT_MODEL;
+  var provider = store('provider') || 'groq';
+  if (!PROVIDERS[provider]) provider = 'groq';
+  var apiKey = store('key.' + provider) || (provider === 'gemini' ? store('key') : '') || '';
+  var model = store('model.' + provider) || PROVIDERS[provider].def;
+  var DEFAULT_MODEL = PROVIDERS[provider].def;
   langI = Math.max(0, parseInt(store('lang') || '0', 10) || 0) % langs.length;
 
   function showSub(text) { clearTimeout(subT); sub.textContent = text; sub.classList.remove('fade'); }
@@ -875,18 +888,43 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       return { raw: txt, json: JSON.parse(txt) };
     });
   }
+  function callOpenAI(q) {
+    var msgs = [{ role: 'system', content: PERSONA + ' Reply with JSON only, in this exact shape: {"reply": "<what you say>", "mood": "<one of: ' + ORDER.join(', ') + '>", "lang": "<en, fr or ar>"}.' }];
+    hist.forEach(function (h) { msgs.push({ role: h.role === 'model' ? 'assistant' : 'user', content: h.parts[0].text }); });
+    msgs.push({ role: 'user', content: q });
+    var body = { model: model, messages: msgs, temperature: 0.9, max_tokens: 400, response_format: { type: 'json_object' } };
+    return fetch(PROVIDERS[provider].base + 'chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+      body: JSON.stringify(body)
+    }).then(function (res) {
+      if (!res.ok) {
+        return res.text().then(function (t) {
+          var err = new Error('http'); err.status = res.status; err.detail = '';
+          try { var j = JSON.parse(t); err.detail = (j.error && (j.error.message || j.error)) || j.message || ''; } catch (e) { err.detail = String(t || '').slice(0, 200); }
+          throw err;
+        });
+      }
+      return res.json();
+    }).then(function (data) {
+      var txt = data && data.choices && data.choices[0] && data.choices[0].message ? (data.choices[0].message.content || '') : '';
+      txt = txt.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+      return { raw: txt, json: JSON.parse(txt) };
+    });
+  }
+  function callBrain(q) { return provider === 'gemini' ? callGemini(q) : callOpenAI(q); }
   function ask(q) {
     wake();
     demo = false; demoBtn.setAttribute('aria-pressed', 'false');
     stopRec();
-    if (!apiKey) { fail('I need my brain key first. Open Settings and paste your Gemini key.'); return; }
+    if (!apiKey) { fail('I need my brain key first. Open Settings and paste your API key.'); return; }
     busy = true;
     clearTimeout(calmT);
     talkId++; talking = false;
     try { window.speechSynthesis.cancel(); } catch (e) {}
     setMood('thinking');
     showSub('...');
-    callGemini(q).then(function (out) {
+    callBrain(q).then(function (out) {
       var r = out.json || {};
       var reply = String(r.reply || '').slice(0, 400).trim();
       if (!reply) { fail('I had nothing to say. Try again.'); return; }
@@ -900,7 +938,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       var s = err && err.status;
       var d = err && err.detail ? String(err.detail).replace(/\s+/g, ' ').slice(0, 200) : '';
       if (s === 429) fail('I hit my free limit for now. Try again in a minute, or tomorrow if it was the daily limit.' + (d ? ' (' + d + ')' : ''));
-      else if (s) fail('Google answered with error ' + s + (d ? ': ' + d : '') + ' Try another model in Settings.');
+      else if (s) fail(PROVIDERS[provider].name + ' answered with error ' + s + (d ? ': ' + d : '') + ' Try another model in Settings.');
       else if (err && err.name === 'SyntaxError') fail('My answer came out garbled. Try again.');
       else fail('I could not reach my brain. Check the internet connection.');
     });
@@ -926,16 +964,25 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     if (chosen && list.indexOf(chosen) < 0) { var o2 = document.createElement('option'); o2.value = chosen; o2.textContent = chosen.replace('models/', ''); modelEl.insertBefore(o2, modelEl.firstChild); }
     modelEl.value = chosen || list[0];
   }
-  function openSettings() {
+  function loadProv(pv) {
+    provider = pv; DEFAULT_MODEL = PROVIDERS[pv].def;
+    apiKey = store('key.' + pv) || (pv === 'gemini' ? store('key') : '') || '';
+    model = store('model.' + pv) || DEFAULT_MODEL;
     keyEl.value = apiKey;
-    if (!modelEl.options.length) fillModels([DEFAULT_MODEL], model); else modelEl.value = model;
+    document.getElementById('keyLabel').textContent = PROVIDERS[pv].name + ' API key';
+    fillModels([DEFAULT_MODEL], model);
     smsg.textContent = '';
+  }
+  provEl.addEventListener('change', function () { loadProv(provEl.value); });
+  function openSettings() {
+    provEl.value = provider;
+    loadProv(provider);
     panel.hidden = false;
   }
   document.getElementById('close').addEventListener('click', function () { panel.hidden = true; });
   document.getElementById('save').addEventListener('click', function () {
     apiKey = keyEl.value.trim(); model = modelEl.value || DEFAULT_MODEL;
-    store('key', apiKey); store('model', model);
+    store('provider', provider); store('key.' + provider, apiKey); store('model.' + provider, model);
     smsg.textContent = apiKey ? 'Saved. JASMN is ready.' : 'Saved without a key.';
     if (apiKey) setTimeout(function () { panel.hidden = true; }, 700);
   });
@@ -943,10 +990,18 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     var k = keyEl.value.trim();
     if (!k) { smsg.textContent = 'Paste your key first.'; return; }
     smsg.textContent = 'Loading models...';
-    fetch(GEMINI + 'models?pageSize=200', { headers: { 'x-goog-api-key': k } }).then(function (res) {
+    var gem = provider === 'gemini';
+    fetch(gem ? GEMINI + 'models?pageSize=200' : PROVIDERS[provider].base + 'models', { headers: gem ? { 'x-goog-api-key': k } : { 'Authorization': 'Bearer ' + k } }).then(function (res) {
       if (!res.ok) throw new Error('http ' + res.status);
       return res.json();
     }).then(function (data) {
+      if (!gem) {
+        var ids = (data.data || []).map(function (m) { return m.id; }).filter(function (id) { return !/whisper|tts|guard|embed|image|vision-preview|orpheus|playai|prompt-guard|safeguard/i.test(id); }).sort();
+        if (!ids.length) { smsg.textContent = 'The key works but no chat models were listed.'; return; }
+        fillModels(ids, ids.indexOf(model) >= 0 ? model : (ids.indexOf(DEFAULT_MODEL) >= 0 ? DEFAULT_MODEL : ids[0]));
+        smsg.textContent = 'Found ' + ids.length + ' models. Pick one, then Save.';
+        return;
+      }
       var names = (data.models || []).filter(function (m) {
         return (m.supportedGenerationMethods || []).indexOf('generateContent') >= 0 && /gemini/i.test(m.name) && !/embed|tts|image|live|audio|robotics|computer|thinking-exp/i.test(m.name);
       }).map(function (m) { return m.name; });
@@ -957,7 +1012,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       if (!names.length) { smsg.textContent = 'The key works but no chat models were listed.'; return; }
       fillModels(names, names.indexOf(model) >= 0 ? model : names[0]);
       smsg.textContent = 'Found ' + names.length + ' models. A Flash Lite one is the best fit for the free tier.';
-    }).catch(function () { smsg.textContent = 'That did not work. Check the key and the internet connection.'; });
+    }).catch(function (e) { smsg.textContent = 'That did not work (' + (e && e.message ? e.message : 'error') + '). Check the key and the internet connection.'; });
   });
 
   // controls
@@ -973,7 +1028,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     if (listening) { stopRec(); setTimeout(startListen, 300); }
   });
   chip('Settings', {}, openSettings);
-  if (!apiKey) setTimeout(function () { showSub('Open Settings and paste your Gemini key so I can think.'); fadeSub(8000); }, 800);
+  if (!apiKey) setTimeout(function () { showSub('Open Settings and paste your API key so I can think.'); fadeSub(8000); }, 800);
 
   resize();
   setMood('neutral');
