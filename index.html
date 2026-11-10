@@ -1211,9 +1211,10 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   }
   function callOpenAI(q, fast, web) {
     var msgs = [{ role: 'system', content: PERSONA + ' Reply with JSON only, in this exact shape: {"reply": "<what you say>", "mood": "<one of: ' + AIMOODS.join(', ') + '>", "lang": "<en, fr or ar>", "action": "<one of: ' + ACTIONS.join(', ') + '>"}.' }];
+    if (web) msgs[0].content += ' You have live web search. Use it whenever the answer could be wrong, outdated or you are not fully sure: current events, the time or weather, prices, scores, specific numbers, people, places, products, anything recent. Answer from what you find, in one or two short sentences, with no links or source names.';
     hist.forEach(function (h) { msgs.push({ role: h.role === 'model' ? 'assistant' : 'user', content: h.parts[0].text }); });
     msgs.push({ role: 'user', content: q });
-    var body = { model: web ? WEB_MODEL : (fast ? FAST_MODEL : model), messages: msgs, temperature: 0.8, max_tokens: web ? 400 : (fast ? 140 : 320) };
+    var body = { model: web ? WEB_MODEL : (fast ? FAST_MODEL : model), messages: msgs, temperature: 0.8, max_tokens: web ? 500 : (fast ? 140 : 320) };
     if (!web) body.response_format = { type: 'json_object' };
     return fetch(PROVIDERS[provider].base + 'chat/completions', {
       method: 'POST',
@@ -1303,7 +1304,10 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   var WEB_ON = store('web') !== 'off', webOK = true, WEB_MODEL = 'groq/compound-mini';
   var WEBQ = /\b(right now|currently|current|today|tonight|tomorrow|yesterday|latest|newest|recent|recently|news|weather|forecast|temperature|scores?|stocks?|price of|exchange rate|who won|president of|prime minister|release date|trending|open now|this week|this year|this month|202\d)\b|\b(how (tall|high|big|far|old|long|many|much|heavy|fast|deep)|population of|height of|distance (from|to|between)|when (was|did|is)|where is|who (is|was|are|were)|what is the (height|population|capital|distance|price|age|length|speed|weight)|capital of)\b|météo|aujourd'hui|actualité|maintenant|الطقس|اليوم|الآن|أخبار/i;
   var ABOUTHER = /\b(who|what|how) (are|is|r) (you|u)\b|\b(who|what) (made|built|created|is your)\b|your name|yourself/i;
-  function needsWeb(q) { return WEB_ON && webOK && provider === 'groq' && WEBQ.test(q) && !ABOUTHER.test(q); }
+  // No keyword list any more: every real question goes to the search model, which decides by itself whether it needs to look something up.
+  // Only creative or self-contained requests skip it, and so do one- or two-word remarks.
+  var NOWEB = /\b(write|story|poem|joke|riddle|translate|code|sing|rhyme|pretend|roleplay|imagine)\b/i;
+  function needsWeb(q) { return WEB_ON && webOK && provider === 'groq' && !ABOUTHER.test(q) && !NOWEB.test(q) && q.trim().split(/\s+/).length >= 3; }
   function cleanSpoken(t) {
     return String(t || '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/https?:\/\/\S+/g, '').replace(/\[\d+\]/g, '').replace(/[*#_`>]/g, '').replace(/\s+/g, ' ').trim();
   }
@@ -1335,7 +1339,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     var my = ++reqId;
     setMood(opts.hear || 'thinking');
     var web = needsWeb(q);
-    showSub(web ? 'Let me check...' : (opts.hear ? '\u201c' + q + '\u201d' : '...'));
+    showSub(web && WEBQ.test(q) ? 'Let me check...' : (opts.hear ? '\u201c' + q + '\u201d' : '...'));
     clearTimeout(thinkT);
     thinkT = setTimeout(function () { if (my === reqId && busy && !talking) setMood('thinking'); }, 700);
     var fast = !web && provider === 'groq' && fastOK && isSimple(q);
@@ -1352,7 +1356,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       if (my !== reqId) return;
       clearTimeout(thinkT);
       var r = out.json || {};
-      var reply = String(r.reply || '').slice(0, 400).trim();
+      var reply = cleanSpoken(String(r.reply || '')).slice(0, 400).trim();
       if (!reply) { fail('I had nothing to say. Try again.'); return; }
       var mood = AIMOODS.indexOf(r.mood) >= 0 ? r.mood : 'smile';
       var lang = /^(en|fr|ar)$/.test(r.lang) ? r.lang : 'en';
