@@ -131,6 +131,18 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <input id="key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste your key here">
     <label for="model">Model</label>
     <select id="model"></select>
+    <label for="wait">Wait after I stop talking</label>
+    <select id="wait">
+      <option value="1000">1 second</option>
+      <option value="1500">1.5 seconds</option>
+      <option value="2000">2 seconds</option>
+      <option value="3000">3 seconds</option>
+    </select>
+    <label for="interrupt">Let me interrupt her while she talks</label>
+    <select id="interrupt">
+      <option value="on">On (best with earphones)</option>
+      <option value="off">Off</option>
+    </select>
     <div class="btns">
       <button type="button" id="load">Load models</button>
       <button type="button" id="save" aria-pressed="true">Save</button>
@@ -159,7 +171,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   function mood(o) {
     return Object.assign({
       sxL: 1, syL: 1, sxR: 1, syR: 1, top: 0, slant: 0, bot: 0, bx: 0, by: 0, fixed: 0,
-      browL: 0, browR: 0, tilt: 0, xAmt: 0, spAmt: 0, stars: 0, shake: 0, shiver: 0, tremble: 0, blush: 0, nodX: 0, nodY: 0, mw: .34, mt: 0, mb: 0, msk: 0, mxo: 0, mwav: 0, mro: 0, etilt: 0, qmark: 0, zzz: 0, hearts: 0, tears: 0, sweat: 0, pant: 0, breathe: 0, heartAmt: 0, ease: 9, rgb: [90, 210, 255]
+      browL: 0, browR: 0, tilt: 0, xAmt: 0, spAmt: 0, stars: 0, shake: 0, shiver: 0, tremble: 0, blush: 0, nodX: 0, nodY: 0, mw: .34, mt: 0, mb: 0, msk: 0, mxo: 0, mwav: 0, mro: 0, etilt: 0, qmark: 0, zzz: 0, hearts: 0, tears: 0, sweat: 0, pant: 0, breathe: 0, heartAmt: 0, zap: 0, ease: 9, rgb: [90, 210, 255]
     }, o);
   }
   var MOODS = {
@@ -187,7 +199,9 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     sympathy:  { label: 'Sympathy',  p: mood({ sxL: 1.05, syL: 1.05, sxR: 1.05, syR: 1.05, top: .08, slant: -.25, by: .3, bx: -.25, fixed: 1, browL: .1, browR: .1, tilt: -.55, shiver: .5, rgb: [135, 190, 255], ease: 4 }) },
     lovable:   { label: 'Lovable',   p: mood({ heartAmt: 1, blush: 1, browL: .12, browR: .12, tilt: -.1, hearts: 1, breathe: .6, rgb: [255, 120, 165], ease: 6 }) },
     shocked:   { label: 'Shocked',   p: mood({ sxL: 1.08, sxR: 1.08, browL: .3, browR: .3, tilt: -.15, tremble: 1.5, fixed: 1, rgb: [205, 232, 255] }) },
-    confused:  { label: 'Confused',  p: mood({ sxL: 1, syL: 1, sxR: .9, syR: .78, top: .05, by: -.15, bx: .25, browL: .12, browR: -.08, tilt: .3, etilt: .05, qmark: 1, rgb: [255, 210, 110] }) }
+    confused:  { label: 'Confused',  p: mood({ sxL: 1, syL: 1, sxR: .9, syR: .78, top: .05, by: -.15, bx: .25, browL: .12, browR: -.08, tilt: .3, etilt: .05, qmark: 1, rgb: [255, 210, 110] }) },
+    scared:    { label: 'Scared',    p: mood({ sxL: 1.06, syL: 1.14, sxR: 1.06, syR: 1.14, browL: .3, browR: .3, tilt: -.55, bx: -.25, by: -.1, fixed: 1, tremble: 2.2, shiver: 1.2, sweat: 1, rgb: [190, 208, 255], ease: 12 }) },
+    electric:  { label: 'Electric shock', p: mood({ sxL: 1.1, syL: 1.12, sxR: 1.1, syR: 1.12, browL: .3, browR: .3, tilt: -.1, fixed: 1, shake: 2.6, tremble: 2, zap: 1, rgb: [255, 236, 90], ease: 30 }) }
   };
   /* mouth per mood, in units of u: mw width, mt and mb height of the upper and lower lip curve (equal means a closed line,
      positive smiles, negative frowns), msk right end lift, mxo sideways shift, mwav wobble, mro 1 draws a round ring (pursed lips) */
@@ -216,11 +230,14 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     sympathy:  { mw: .22, mt: -.08, mb: -.08 },
     lovable:   { mw: .4, mt: .12, mb: .12 },
     shocked:   { mw: .28, mt: -.1, mb: .36 },
-    confused:  { mw: .26, mt: 0, mb: 0, mwav: .8, mxo: .1 }
+    confused:  { mw: .26, mt: 0, mb: 0, mwav: .8, mxo: .1 },
+    scared:    { mw: .34, mt: -.05, mb: -.05, mwav: 1.6 },
+    electric:  { mw: .34, mt: -.12, mb: .32 }
   };
   Object.keys(MOUTH).forEach(function (k) { Object.assign(MOODS[k].p, MOUTH[k]); });
-  var ORDER = ['neutral', 'smile', 'happy', 'curious', 'surprised', 'sleepy', 'thinking', 'angry', 'dead', 'dizzy', 'shy', 'yes', 'no', 'confused', 'sleeping', 'crying', 'disappointed', 'hope', 'badass', 'hot', 'cold', 'proud', 'sympathy', 'lovable', 'shocked'];
-  var NUM = ['sxL', 'syL', 'sxR', 'syR', 'top', 'slant', 'bot', 'bx', 'by', 'fixed', 'browL', 'browR', 'tilt', 'xAmt', 'spAmt', 'stars', 'shake', 'shiver', 'tremble', 'blush', 'nodX', 'nodY', 'mw', 'mt', 'mb', 'msk', 'mxo', 'mwav', 'mro', 'etilt', 'qmark', 'zzz', 'hearts', 'tears', 'sweat', 'pant', 'breathe', 'heartAmt'];
+  var ORDER = ['neutral', 'smile', 'happy', 'curious', 'surprised', 'sleepy', 'thinking', 'angry', 'dead', 'dizzy', 'shy', 'yes', 'no', 'confused', 'sleeping', 'crying', 'disappointed', 'hope', 'badass', 'hot', 'cold', 'proud', 'sympathy', 'lovable', 'shocked', 'scared', 'electric'];
+  var AIMOODS = ORDER.filter(function (m) { return m !== 'electric'; });   // the AI never picks electric shock, only a loud wake-up does
+  var NUM = ['sxL', 'syL', 'sxR', 'syR', 'top', 'slant', 'bot', 'bx', 'by', 'fixed', 'browL', 'browR', 'tilt', 'xAmt', 'spAmt', 'stars', 'shake', 'shiver', 'tremble', 'blush', 'nodX', 'nodY', 'mw', 'mt', 'mb', 'msk', 'mxo', 'mwav', 'mro', 'etilt', 'qmark', 'zzz', 'hearts', 'tears', 'sweat', 'pant', 'breathe', 'heartAmt', 'zap'];
 
   var cur = Object.assign({}, MOODS.neutral.p, { rgb: MOODS.neutral.p.rgb.slice() });
   var tgt = MOODS.neutral.p;
@@ -300,7 +317,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   function rgba(c, a) { return 'rgba(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ',' + a + ')'; }
 
   function setMood(name) {
-    if ((name === 'surprised' || name === 'shocked') && current !== name) popAmp = name === 'shocked' ? 1.8 : 1;
+    if ((name === 'surprised' || name === 'shocked' || name === 'scared' || name === 'electric') && current !== name) popAmp = name === 'electric' ? 2.2 : (name === 'shocked' ? 1.8 : 1);
     current = name;
     tgt = MOODS[name].p;
     var chips = row.querySelectorAll('[data-mood]');
@@ -346,6 +363,10 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     var u = Math.min(W / 4.4, H / 2.2);
     var w0 = u * 1.05, gap = u * .85;
     var R0 = cur.rgb;
+    if (cur.zap > .03) {
+      var zf = (Math.sin(t * .09) + Math.sin(t * .151 + 1) > .7) ? cur.zap : 0;
+      R0 = [R0[0] + (255 - R0[0]) * zf * .85, R0[1] + (255 - R0[1]) * zf * .85, R0[2] + (255 - R0[2]) * zf * .85];
+    }
     var rgb = rgba(R0, 1);
     var baseA = clamp(1 - cur.xAmt - cur.spAmt - cur.heartAmt, 0, 1);
     var tilt = cur.tilt + cur.spAmt * Math.sin(t * .004) * .4;
@@ -586,6 +607,26 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       octx.globalAlpha = 1;
     }
 
+    if (cur.zap > .03) {
+      /* lightning bolts flicker in from the top while the electric shock lasts */
+      var zs0 = Math.floor(t / 85);
+      var zr = function (n) { var x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+      octx.save();
+      octx.strokeStyle = 'rgb(255,246,160)';
+      octx.lineWidth = Math.max(2, u * .045);
+      octx.lineCap = 'round'; octx.lineJoin = 'round';
+      octx.globalAlpha = clamp(cur.zap, 0, 1);
+      for (var zb = 0; zb < 4; zb++) {
+        if (zr(zs0 * 4 + zb) < .4) continue;
+        var zsd = zb % 2 ? 1 : -1;
+        var zbx = W / 2 + zsd * u * (.5 + zr(zs0 + zb) * 1.9), zby = H / 2 - u * 1.25;
+        octx.beginPath(); octx.moveTo(zbx, zby);
+        for (var zj = 1; zj <= 6; zj++) { zbx += (zr(zs0 * 7 + zb * 13 + zj) - .5) * u * .55; zby += u * .32; octx.lineTo(zbx, zby); }
+        octx.stroke();
+      }
+      octx.restore();
+    }
+
     var glowA = .65 * (1 - .85 * (coverSum / 2));
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = '#04070b';
@@ -816,7 +857,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   }
   ['touchend', 'click', 'keydown'].forEach(function (ev) { document.addEventListener(ev, noteActive, true); });
   setInterval(function () {
-    if (demo || talking || busy || document.hidden) return;
+    if (demo || talking || busy || document.hidden || ear.state === 'speech') return;
     var idle = Date.now() - lastActive;
     if (idle > IDLE_SLEEP) {
       if (autoStage < 2 && !(current === 'sleeping' && autoStage === 0)) { autoStage = 2; setMood('sleeping'); sendAction('lower_arms'); }
@@ -862,9 +903,9 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   // Edit PERSONA to change who JASMN is. The name is written as Jasmine inside the text so the voice pronounces it as a word.
   var PERSONA = 'Your name is JASMN, pronounced Jasmine. Whenever you say or write your own name, write it as Jasmine so the voice reads it correctly. You are a small desktop robot built from cardboard by your friend Adam. Your face is a pair of animated eyes on a phone screen and your answers are spoken aloud. '
-    + 'Be warm, quick and a little witty. Answer in one or two short sentences with no markdown, no emojis and no lists. '
+    + 'Be warm and friendly but get straight to the point. Say the answer first, in one short sentence (two at most), with no filler, no preamble, no markdown, no emojis and no lists. Do not ask a question back unless you truly need one. Keep any humor very short. '
     + 'Reply in the language the person used (English, French or Arabic). '
-    + 'Choose the eye expression that fits what you are saying right now. '
+    + 'Choose the eye expression that fits what you are saying right now (use scared when something frightening is mentioned or you are startled). If the message says you were just woken by a loud shout and got an electric shock, react to it in character in one short sentence, startled, a bit grumpy or funny, then answer. '
     + 'You also have a body that can move. Pick an action only when it feels natural: wave when greeting or saying goodbye, shake (your head turns side to side) when you disagree or say no, look_left or look_right when something makes you curious, turn_left or turn_right to turn your whole body toward something, shrug when you do not know, raise_arms or flap when you are very excited. You cannot nod. Otherwise use none.';
   var GEMINI = 'https://generativelanguage.googleapis.com/v1beta/';
   var PROVIDERS = {
@@ -891,88 +932,192 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   function fadeSub(ms) { clearTimeout(subT); subT = setTimeout(function () { sub.classList.add('fade'); }, ms); }
 
   // listening
-  function stopRec() { if (rec) { var r = rec; rec = null; r.onend = null; try { r.abort(); } catch (e) {} } whCancel(); }
+  function stopRec() { if (rec) { var r = rec; rec = null; r.onend = null; try { r.abort(); } catch (e) {} } }
 
-  // cloud ear: used when the browser's own speech recognition is blocked (iPhone home screen apps).
-  // It records from the microphone and sends the short clip to Groq Whisper.
-  var useWhisper = false, whStream = null, whCtx = null, whRec = null, whTimer = 0, whStarting = false;
+  // ---- THE EAR (piece 3) ----
+  // With a Groq key, the microphone stays open while Listen is on. Speech is cut out by volume, with a short pre-roll so no first word is lost,
+  // then sent to Groq Whisper and comes back as text. Without a Groq key, the old browser listening is used instead.
+  var waitEl = document.getElementById('wait'), intEl = document.getElementById('interrupt');
+  var WAIT_MS = parseInt(store('wait') || '1500', 10) || 1500;     // silence needed after you stop before she answers
+  var INTERRUPT = store('interrupt') !== 'off';                      // you can talk over her
+  var LOUD_RMS = 0.30;                                               // a shout this loud wakes her with an electric shock (lower = more sensitive)
+  var ear = { on: false, starting: false, stream: null, ctx: null, src: null, proc: null, mute: null, state: 'idle', pre: [], buf: [], lastIdx: 0, floor: .01, hot: 0, startedAt: 0, lastLoud: 0, voiced: 0, peak: 0 };
+  var lastReply = '', justShocked = 0;
   function whKey() { return store('key.groq') || (provider === 'groq' ? apiKey : ''); }
-  function whCancel() { clearInterval(whTimer); if (whRec) { var m = whRec; whRec = null; m.onstop = null; try { m.stop(); } catch (e) {} } }
-  function whRelease() {
-    whCancel();
-    if (whStream) { whStream.getTracks().forEach(function (t) { t.stop(); }); whStream = null; }
-    if (whCtx) { try { whCtx.close(); } catch (e) {} whCtx = null; }
+  function cloudEar() { return !!(whKey() && navigator.mediaDevices && navigator.mediaDevices.getUserMedia && (window.AudioContext || window.webkitAudioContext)); }
+  function isAsleep() { return current === 'sleeping'; }
+
+  function earStart() {
+    if (ear.on || ear.starting) return;
+    ear.starting = true;
+    var AC = window.AudioContext || window.webkitAudioContext;
+    navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false } }).then(function (stream) {
+      ear.starting = false;
+      if (!listening) { stream.getTracks().forEach(function (t) { t.stop(); }); return; }
+      ear.stream = stream;
+      ear.ctx = new AC();
+      if (ear.ctx.state === 'suspended') ear.ctx.resume();
+      ear.src = ear.ctx.createMediaStreamSource(stream);
+      ear.proc = ear.ctx.createScriptProcessor(2048, 1, 1);
+      ear.mute = ear.ctx.createGain(); ear.mute.gain.value = 0;
+      ear.src.connect(ear.proc); ear.proc.connect(ear.mute); ear.mute.connect(ear.ctx.destination);
+      ear.proc.onaudioprocess = earBlock;
+      ear.state = 'idle'; ear.pre = []; ear.buf = []; ear.hot = 0; ear.on = true;
+    }).catch(function () {
+      ear.starting = false; listening = false; syncListen();
+      showSub('Microphone is blocked for this app. Fully close it (swipe it away), reopen it and tap Listen again.'); fadeSub(9000);
+    });
   }
-  function whTranscribe(blob) {
-    var key = whKey();
-    if (!key) { showSub('Voice needs a Groq key. Open Settings, pick Groq and paste it.'); fadeSub(7000); listening = false; syncListen(); return; }
+  function earStop() {
+    ear.on = false; ear.starting = false; ear.state = 'idle'; ear.buf = []; ear.pre = [];
+    try {
+      if (ear.proc) { ear.proc.onaudioprocess = null; ear.proc.disconnect(); }
+      if (ear.src) ear.src.disconnect();
+      if (ear.mute) ear.mute.disconnect();
+    } catch (e) {}
+    if (ear.stream) { ear.stream.getTracks().forEach(function (t) { t.stop(); }); ear.stream = null; }
+    if (ear.ctx) { try { ear.ctx.close(); } catch (e) {} ear.ctx = null; }
+    ear.proc = ear.src = ear.mute = null;
+  }
+
+  function earBlock(e) {
+    var ch = e.inputBuffer.getChannelData(0), n = ch.length, sum = 0, i;
+    for (i = 0; i < n; i++) sum += ch[i] * ch[i];
+    var rms = Math.sqrt(sum / n), now = Date.now(), rate = ear.ctx ? ear.ctx.sampleRate : 48000;
+    var thr = clamp(ear.floor * 3.2, 0.012, 0.08);                 // adapts to the room noise
+    var copy = new Float32Array(ch);
+    if (ear.state === 'idle') {
+      ear.floor += (rms - ear.floor) * (rms < ear.floor * 1.6 ? .05 : .002);
+      ear.pre.push(copy);
+      if (ear.pre.length > 14) ear.pre.shift();                      // about 0.6 s of pre-roll
+      if (isAsleep() && rms > LOUD_RMS) shockWake();
+      var T = talking ? Math.max(.09, thr * 2.5) : thr;             // while she talks, only a clearly louder voice counts
+      ear.hot = rms > T ? ear.hot + 1 : 0;
+      if (ear.hot >= (talking ? 8 : 2)) {
+        if (talking && !INTERRUPT) { ear.hot = 0; return; }
+        ear.state = 'speech';
+        ear.buf = ear.pre.slice(); ear.pre = [];
+        ear.lastIdx = ear.buf.length; ear.startedAt = now; ear.lastLoud = now;
+        ear.voiced = ear.hot * n / rate * 1000; ear.peak = rms; ear.hot = 0;
+        if (talking) bargeIn();
+      }
+    } else {
+      ear.buf.push(copy);
+      if (rms > thr * .8) { ear.lastLoud = now; ear.lastIdx = ear.buf.length; ear.voiced += n / rate * 1000; }
+      if (rms > ear.peak) ear.peak = rms;
+      if (isAsleep() && ear.peak > LOUD_RMS) shockWake();
+      if (now - ear.lastLoud > WAIT_MS || now - ear.startedAt > 30000) earFinish();
+    }
+  }
+
+  var wakeShockT = 0;
+  function shockWake() {
+    autoStage = 0; justShocked = Date.now(); lastActive = Date.now();
+    clearTimeout(wakeT); clearTimeout(wakeShockT); clearTimeout(calmT);
+    setMood('electric'); sendAction('flap');
+    wakeShockT = setTimeout(function () {
+      if (current !== 'electric' || talking || busy) return;
+      setMood('scared');
+      wakeShockT = setTimeout(function () { if (current === 'scared' && !talking && !busy) setMood('neutral'); }, 2200);
+    }, 1600);
+  }
+  function bargeIn() {
+    talkId++; talking = false; busy = false; reqId++;
+    clearTimeout(talkFail); clearTimeout(calmT); clearTimeout(thinkT);
+    try { window.speechSynthesis.cancel(); } catch (e) {}
+    setMood('curious'); showSub('...');
+  }
+  function quietBack() {
+    if (current === 'curious' && !busy && !talking) {
+      clearTimeout(calmT);
+      calmT = setTimeout(function () { if (current === 'curious' && !busy && !talking) setMood('neutral'); }, 700);
+    }
+  }
+
+  function wavBlob(pcm, rate) {
+    var b = new ArrayBuffer(44 + pcm.length * 2), v = new DataView(b), k;
+    var ws = function (o, str) { for (var q = 0; q < str.length; q++) v.setUint8(o + q, str.charCodeAt(q)); };
+    ws(0, 'RIFF'); v.setUint32(4, 36 + pcm.length * 2, true); ws(8, 'WAVE'); ws(12, 'fmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    ws(36, 'data'); v.setUint32(40, pcm.length * 2, true);
+    for (k = 0; k < pcm.length; k++) v.setInt16(44 + k * 2, pcm[k], true);
+    return new Blob([b], { type: 'audio/wav' });
+  }
+  function earFinish() {
+    var buf = ear.buf, last = ear.lastIdx, voiced = ear.voiced, peak = ear.peak, rate = ear.ctx ? ear.ctx.sampleRate : 48000;
+    ear.state = 'idle'; ear.buf = []; ear.pre = []; ear.hot = 0;
+    if (voiced < 260) { quietBack(); return; }                       // a click or a cough, not speech
+    var keep = Math.min(buf.length, last + Math.ceil(.35 * rate / 2048));
+    var total = 0, i, j, o = 0;
+    for (i = 0; i < keep; i++) total += buf[i].length;
+    var all = new Float32Array(total);
+    for (i = 0; i < keep; i++) { all.set(buf[i], o); o += buf[i].length; }
+    var pk = 0, a;
+    for (i = 0; i < total; i++) { a = Math.abs(all[i]); if (a > pk) pk = a; }
+    var g = pk > 0 ? Math.min(8, .9 / pk) : 1; if (g < 1) g = 1;     // quiet voices are boosted before they are sent
+    var ratio = rate / 16000, outLen = Math.floor(total / ratio), pcm = new Int16Array(outLen);
+    for (i = 0; i < outLen; i++) {
+      var s0 = Math.floor(i * ratio), s1 = Math.min(total, Math.floor((i + 1) * ratio)), acc = 0, c = 0;
+      for (j = s0; j < s1; j++) { acc += all[j]; c++; }
+      pcm[i] = Math.max(-1, Math.min(1, (c ? acc / c : 0) * g)) * 32767;
+    }
+    earSend(wavBlob(pcm, 16000), { peak: peak, voiced: voiced });
+  }
+
+  var HALLU = /^(thank you|thanks|thanks for watching|thank you for watching|you|bye|okay|ok|merci|شكرا|\.+)[.!? ]*$/i;
+  var WAKE = /\b(jasmn|jasmin|jasmine|yasmin|yasmine|yasmeen|jazmin|hello|hi|hey|hallo|salut|bonjour|coucou)\b|ياسمين|مرحبا|اهلا|أهلا/i;
+  var OOPS = { en: "Sorry, I didn't catch that. Could you say it again?", fr: "Désolée, je n'ai pas bien compris. Tu peux répéter ?", ar: 'عذرا، لم أفهم جيدا. هل يمكنك أن تعيد؟' };
+  function earSend(blob, meta) {
+    var key = whKey(); if (!key) return;
     var fd = new FormData();
-    var ext = /mp4/.test(blob.type) ? 'm4a' : (/webm/.test(blob.type) ? 'webm' : 'wav');
-    fd.append('file', blob, 'speech.' + ext);
+    fd.append('file', blob, 'speech.wav');
     fd.append('model', 'whisper-large-v3-turbo');
     fd.append('language', langs[langI].slice(0, 2));
-    fd.append('response_format', 'json');
+    fd.append('response_format', 'verbose_json');
     fd.append('temperature', '0');
+    fd.append('prompt', 'Jasmine, JASMN, Adam.');
     fetch('https://api.groq.com/openai/v1/audio/transcriptions', { method: 'POST', headers: { 'Authorization': 'Bearer ' + key }, body: fd })
       .then(function (res) { if (!res.ok) throw new Error('error ' + res.status); return res.json(); })
-      .then(function (d) {
-        var t = (d && d.text ? d.text : '').trim();
-        if (t && !busy) ask(t); else if (listening && !busy && !talking) startListen();
-      })
-      .catch(function (e) { showSub('Could not understand the audio (' + (e && e.message ? e.message : 'error') + ').'); fadeSub(5000); if (listening) setTimeout(startListen, 1500); });
+      .then(function (d) { earHeard(d, meta); })
+      .catch(function (e) { quietBack(); showSub('I could not hear that (' + (e && e.message ? e.message : 'error') + ').'); fadeSub(4000); });
   }
-  function whListen() {
-    if (!listening || whRec || whStarting || busy || talking) return;
-    var go = function (stream) {
-      whStarting = false;
-      if (!listening) return;
-      whStream = stream;
-      var AC = window.AudioContext || window.webkitAudioContext;
-      if (!whCtx) whCtx = new AC();
-      if (whCtx.state === 'suspended') whCtx.resume();
-      var an = whCtx.createAnalyser(); an.fftSize = 1024;
-      whCtx.createMediaStreamSource(stream).connect(an);
-      var buf = new Uint8Array(an.fftSize);
-      var mt = '';
-      if (window.MediaRecorder && MediaRecorder.isTypeSupported) { mt = MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : (MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : ''); }
-      var mr = mt ? new MediaRecorder(stream, { mimeType: mt }) : new MediaRecorder(stream);
-      var chunks = [], heard = false, t0 = Date.now(), lastLoud = 0, startSpeech = 0;
-      whRec = mr;
-      mr.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
-      mr.onstop = function () {
-        clearInterval(whTimer);
-        if (whRec === mr) whRec = null;
-        if (!heard || !listening) { if (listening && !busy && !talking) setTimeout(startListen, 200); return; }
-        whTranscribe(new Blob(chunks, { type: mr.mimeType || mt || 'audio/mp4' }));
-      };
-      mr.start();
-      whTimer = setInterval(function () {
-        an.getByteTimeDomainData(buf);
-        var peak = 0, i;
-        for (i = 0; i < buf.length; i++) peak = Math.max(peak, Math.abs(buf[i] - 128));
-        var now = Date.now();
-        if (peak > 14) { if (!heard) startSpeech = now; heard = true; lastLoud = now; }
-        if ((heard && now - lastLoud > 1000) || (heard && now - startSpeech > 15000) || (!heard && now - t0 > 8000)) { clearInterval(whTimer); try { mr.stop(); } catch (e) {} }
-      }, 100);
-    };
-    if (whStream) { go(whStream); return; }
-    whStarting = true;
-    navigator.mediaDevices.getUserMedia({ audio: true }).then(go).catch(function () {
-      whStarting = false; listening = false; syncListen();
-      showSub('Microphone is blocked. Close the app completely, reopen it and tap Listen again.'); fadeSub(8000);
-    });
+  function echoLike(a, b) {
+    var w = a.toLowerCase().replace(/[^\p{L}\p{N} ]/gu, ' ').split(/\s+/).filter(Boolean);
+    if (w.length < 3) return false;
+    var bb = ' ' + b.toLowerCase().replace(/[^\p{L}\p{N} ]/gu, ' ').replace(/\s+/g, ' ') + ' ', hit = 0;
+    w.forEach(function (x) { if (bb.indexOf(' ' + x + ' ') >= 0) hit++; });
+    return hit / w.length > .7;
   }
-  // asks for the microphone on every Listen tap (the browser decides whether it shows the question)
+  function earHeard(d, meta) {
+    var t = String(d && d.text || '').trim();
+    var segs = (d && d.segments) || [], lp = 0, ns = 0, i;
+    if (segs.length) { for (i = 0; i < segs.length; i++) { lp += segs[i].avg_logprob; ns = Math.max(ns, segs[i].no_speech_prob || 0); } lp /= segs.length; } else lp = -.5;
+    if (!t || (ns > .7 && lp < -.7)) { quietBack(); return; }                 // silence or noise
+    if (HALLU.test(t) && lp < -.5) { quietBack(); return; }                   // Whisper inventing "thank you" from noise
+    if (lastReply && echoLike(t, lastReply)) { quietBack(); return; }         // that was her own voice
+    if (isAsleep() && !WAKE.test(t)) return;                                  // asleep: only her name or a greeting wakes her
+    var clarity = (t.length < 3 || lp < -.95 || ns > .6) ? 'bad' : ((lp < -.55 || ns > .4) ? 'meh' : 'good');
+    var note = justShocked && Date.now() - justShocked < 12000 ? 'loud' : '';
+    justShocked = 0;
+    if (clarity === 'bad') {
+      wake();
+      var lc = langs[langI].slice(0, 2);
+      lastReply = OOPS[lc] || OOPS.en;
+      showSub(lastReply); speak(lastReply, 'curious', lc); sendAction('none');
+      return;
+    }
+    ask(t, { hear: clarity === 'good' ? 'smile' : 'curious', note: note });
+  }
   function askMic() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return Promise.resolve();
-    return navigator.mediaDevices.getUserMedia({ audio: true }).then(function (st) {
-      if (useWhisper) whStream = st; else st.getTracks().forEach(function (t) { t.stop(); });
-    });
+    return navigator.mediaDevices.getUserMedia({ audio: true }).then(function (st) { st.getTracks().forEach(function (t) { t.stop(); }); });
   }
 
   function startListen() {
-    if (!listening || rec || busy || talking) return;
-    if (useWhisper) { whListen(); return; }
+    if (!listening) return;
+    if (cloudEar()) { earStart(); return; }
+    if (rec || busy || talking) return;
     if (!SR) { listening = false; syncListen(); showSub('This browser cannot listen. Type instead, or try Safari or Chrome.'); fadeSub(6000); return; }
     var r = new SR();
     rec = r;
@@ -982,11 +1127,6 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       if (t && !busy) ask(t);
     };
     r.onerror = function (e) {
-      if ((e.error === 'not-allowed' || e.error === 'service-not-allowed') && whKey() && navigator.mediaDevices && window.MediaRecorder) {
-        rec = null; useWhisper = true; showSub('Switching to the cloud ear...'); fadeSub(2500);
-        setTimeout(startListen, 300);
-        return;
-      }
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
         listening = false; syncListen(); showSub('Microphone permission is blocked. Allow it in the browser settings.'); fadeSub(7000);
       }
@@ -997,7 +1137,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   var listenBtn = null, langBtn = null;
   function syncListen() {
     if (listenBtn) listenBtn.setAttribute('aria-pressed', listening ? 'true' : 'false');
-    if (!listening) { stopRec(); whRelease(); }
+    if (!listening) { stopRec(); earStop(); }
   }
 
   // speaking
@@ -1039,7 +1179,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   function callGemini(q) {
     var contents = hist.concat([{ role: 'user', parts: [{ text: q }] }]);
     var body = {
-      systemInstruction: { parts: [{ text: PERSONA + ' Reply with JSON only, in this exact shape: {"reply": "<what you say>", "mood": "<one of: ' + ORDER.join(', ') + '>", "lang": "<en, fr or ar>", "action": "<one of: ' + ACTIONS.join(', ') + '>"}.' }] },
+      systemInstruction: { parts: [{ text: PERSONA + ' Reply with JSON only, in this exact shape: {"reply": "<what you say>", "mood": "<one of: ' + AIMOODS.join(', ') + '>", "lang": "<en, fr or ar>", "action": "<one of: ' + ACTIONS.join(', ') + '>"}.' }] },
       contents: contents,
       generationConfig: { responseMimeType: 'application/json', temperature: 0.9, maxOutputTokens: 400 }
     };
@@ -1063,11 +1203,11 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       return { raw: txt, json: JSON.parse(txt) };
     });
   }
-  function callOpenAI(q) {
-    var msgs = [{ role: 'system', content: PERSONA + ' Reply with JSON only, in this exact shape: {"reply": "<what you say>", "mood": "<one of: ' + ORDER.join(', ') + '>", "lang": "<en, fr or ar>", "action": "<one of: ' + ACTIONS.join(', ') + '>"}.' }];
+  function callOpenAI(q, fast) {
+    var msgs = [{ role: 'system', content: PERSONA + ' Reply with JSON only, in this exact shape: {"reply": "<what you say>", "mood": "<one of: ' + AIMOODS.join(', ') + '>", "lang": "<en, fr or ar>", "action": "<one of: ' + ACTIONS.join(', ') + '>"}.' }];
     hist.forEach(function (h) { msgs.push({ role: h.role === 'model' ? 'assistant' : 'user', content: h.parts[0].text }); });
     msgs.push({ role: 'user', content: q });
-    var body = { model: model, messages: msgs, temperature: 0.9, max_tokens: 400, response_format: { type: 'json_object' } };
+    var body = { model: fast ? FAST_MODEL : model, messages: msgs, temperature: 0.8, max_tokens: fast ? 140 : 320, response_format: { type: 'json_object' } };
     return fetch(PROVIDERS[provider].base + 'chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
@@ -1087,31 +1227,88 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       return { raw: txt, json: JSON.parse(txt) };
     });
   }
-  function callBrain(q) { return provider === 'gemini' ? callGemini(q) : callOpenAI(q); }
-  function ask(q) {
+  function callBrain(q, fast) { return provider === 'gemini' ? callGemini(q) : callOpenAI(q, fast); }
+  // ---- instant answers: no internet needed for greetings, thanks, goodbyes ----
+  function norm(q) { return q.toLowerCase().replace(/[^\p{L}\p{N} ]/gu, ' ').replace(/\s+/g, ' ').trim(); }
+  var NM = '(jasmn|jasmin|jasmine|yasmin|yasmine|yasmeen|jazmin|ياسمين)';
+  var RE_NAME = new RegExp('^' + NM + '$');
+  var RE_HI = new RegExp('^((hi|hello|hey|hiya|yo|good morning|good evening|good afternoon|salut|bonjour|bonsoir|coucou|hallo|مرحبا|اهلا|أهلا|السلام عليكم)( (there|' + NM.slice(1, -1) + '))?|' + NM + ' (hi|hello|hey|salut|bonjour))$');
+  var RE_THX = new RegExp('^(thanks|thank you|thank you so much|thanks a lot|merci|merci beaucoup|شكرا|شكرا جزيلا)( ' + NM + ')?$');
+  var RE_BYE = new RegExp('^(bye|goodbye|bye bye|see you|see you later|au revoir|a plus|à plus|مع السلامة)( ' + NM + ')?$');
+  var RE_NIGHT = new RegExp('^(good night|goodnight|bonne nuit|تصبح على خير)( ' + NM + ')?$');
+  var RE_HOW = new RegExp('^(how are you|how are you doing|how are you today|how r u|ça va|ca va|comment ça va|comment ca va|كيف حالك)( ' + NM + ')?$');
+  var QR = {
+    en: { hi: ["Hi Adam! I'm here.", 'Hello Adam! What is up?', 'Hey! I am all ears.'], name: ['Yes? I am listening.', 'I am here!', 'Yes Adam?'], thx: ['You are welcome!', 'Anytime!'], bye: ['Bye Adam! See you soon.', 'See you later!'], night: ['Good night Adam. Sweet dreams!'], how: ['I am doing great, thanks for asking!', 'Feeling good! And you?'] },
+    fr: { hi: ['Salut Adam ! Je suis là.', 'Bonjour Adam ! Que se passe-t-il ?'], name: ['Oui ? Je t\'écoute.', 'Je suis là !'], thx: ['De rien !', 'Avec plaisir !'], bye: ['Au revoir Adam ! À bientôt.'], night: ['Bonne nuit Adam. Fais de beaux rêves !'], how: ['Je vais très bien, merci !', 'Ça va super ! Et toi ?'] },
+    ar: { hi: ['مرحبا آدم! أنا هنا.', 'أهلا آدم! كيف حالك؟'], name: ['نعم؟ أنا أسمعك.', 'أنا هنا!'], thx: ['عفوا!', 'على الرحب والسعة!'], bye: ['مع السلامة آدم! إلى اللقاء.'], night: ['تصبح على خير آدم.'], how: ['أنا بخير، شكرا!', 'أنا بخير! وأنت؟'] }
+  };
+  function pick(a) { return a[Math.floor(Math.random() * a.length)]; }
+  function quickReply(q) {
+    var n = norm(q), lc = langs[langI].slice(0, 2);
+    if (/[\u0600-\u06FF]/.test(q)) lc = 'ar'; else if (/\b(salut|bonjour|bonsoir|coucou|merci|revoir|bonne nuit|ça va|ca va)\b/.test(n)) lc = 'fr';
+    var L = QR[lc], r = null;
+    if (RE_NAME.test(n)) r = { reply: pick(L.name), mood: 'smile', action: 'none' };
+    else if (RE_HI.test(n)) r = { reply: pick(L.hi), mood: 'happy', action: 'wave' };
+    else if (RE_THX.test(n)) r = { reply: pick(L.thx), mood: 'happy', action: 'none' };
+    else if (RE_NIGHT.test(n)) r = { reply: pick(L.night), mood: 'sleepy', action: 'lower_arms' };
+    else if (RE_BYE.test(n)) r = { reply: pick(L.bye), mood: 'smile', action: 'wave' };
+    else if (RE_HOW.test(n)) r = { reply: pick(L.how), mood: 'happy', action: 'none' };
+    if (r) r.lang = lc;
+    return r;
+  }
+  // simple things go to a small fast model, anything that needs real thinking goes to the chosen big model
+  var HARD = /\b(why|how|explain|difference|compare|calculate|solve|write|story|poem|plan|code|translate|summar\w*|should i|what if|tell me about|teach|describe|pourquoi|comment|expliqu\w*|raconte|écris|ecris)\b|كيف|لماذا|اشرح|\d\s*[-+*\/x×÷]\s*\d/i;
+  function isSimple(q) { return q.trim().split(/\s+/).length <= 9 && !HARD.test(q); }
+  var reqId = 0, fastOK = true, thinkT = 0, FAST_MODEL = 'llama-3.1-8b-instant';
+
+  function ask(q, opts) {
+    opts = opts || {};
     wake();
     demo = false; demoBtn.setAttribute('aria-pressed', 'false');
     stopRec();
+    var qr = quickReply(q);
+    if (qr) {
+      reqId++; clearTimeout(thinkT); clearTimeout(calmT);
+      hist.push({ role: 'user', parts: [{ text: q }] }, { role: 'model', parts: [{ text: JSON.stringify({ reply: qr.reply, mood: qr.mood, lang: qr.lang, action: qr.action }) }] });
+      if (hist.length > 16) hist = hist.slice(-16);
+      lastReply = qr.reply; showSub(qr.reply);
+      speak(qr.reply, qr.mood, qr.lang); sendAction(qr.action);
+      return;
+    }
     if (!apiKey) { fail('I need my brain key first. Open Settings and paste your API key.'); return; }
     busy = true;
     clearTimeout(calmT);
     talkId++; talking = false;
     try { window.speechSynthesis.cancel(); } catch (e) {}
-    setMood('thinking');
-    showSub('...');
-    callBrain(q).then(function (out) {
+    var my = ++reqId;
+    setMood(opts.hear || 'thinking');
+    showSub(opts.hear ? '\u201c' + q + '\u201d' : '...');
+    clearTimeout(thinkT);
+    thinkT = setTimeout(function () { if (my === reqId && busy && !talking) setMood('thinking'); }, 700);
+    var fast = provider === 'groq' && fastOK && isSimple(q);
+    var prompt = opts.note === 'loud' ? q + '\n(You were just woken by a loud shout and got an electric shock. React to that briefly, in character, then answer.)' : q;
+    var call = callBrain(prompt, fast).catch(function (err) {
+      if (fast && err && err.status) { if (err.status !== 429) fastOK = false; return callBrain(prompt, false); }
+      throw err;
+    });
+    call.then(function (out) {
+      if (my !== reqId) return;
+      clearTimeout(thinkT);
       var r = out.json || {};
       var reply = String(r.reply || '').slice(0, 400).trim();
       if (!reply) { fail('I had nothing to say. Try again.'); return; }
-      var mood = MOODS[r.mood] ? r.mood : 'smile';
+      var mood = AIMOODS.indexOf(r.mood) >= 0 ? r.mood : 'smile';
       var lang = /^(en|fr|ar)$/.test(r.lang) ? r.lang : 'en';
       hist.push({ role: 'user', parts: [{ text: q }] }, { role: 'model', parts: [{ text: out.raw }] });
       if (hist.length > 16) hist = hist.slice(-16);
       var action = ACTIONS.indexOf(r.action) >= 0 ? r.action : 'none';
+      lastReply = reply;
       showSub(reply);
       speak(reply, mood, lang);
       sendAction(action);
     }).catch(function (err) {
+      if (my !== reqId) return;
+      clearTimeout(thinkT);
       var s = err && err.status;
       var d = err && err.detail ? String(err.detail).replace(/\s+/g, ' ').slice(0, 200) : '';
       if (s === 429) fail('I hit my free limit for now. Try again in a minute, or tomorrow if it was the daily limit.' + (d ? ' (' + d + ')' : ''));
@@ -1149,6 +1346,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     document.getElementById('keyLabel').textContent = PROVIDERS[pv].name + ' API key';
     fillModels([DEFAULT_MODEL], model);
     smsg.textContent = '';
+    waitEl.value = String(WAIT_MS); intEl.value = INTERRUPT ? 'on' : 'off';
   }
   provEl.addEventListener('change', function () { loadProv(provEl.value); });
   function openSettings() {
@@ -1160,6 +1358,8 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   document.getElementById('save').addEventListener('click', function () {
     apiKey = keyEl.value.trim(); model = modelEl.value || DEFAULT_MODEL;
     store('provider', provider); store('key.' + provider, apiKey); store('model.' + provider, model);
+    WAIT_MS = parseInt(waitEl.value, 10) || 1500; INTERRUPT = intEl.value !== 'off';
+    store('wait', String(WAIT_MS)); store('interrupt', INTERRUPT ? 'on' : 'off');
     smsg.textContent = apiKey ? 'Saved. JASMN is ready.' : 'Saved without a key.';
     if (apiKey) setTimeout(function () { panel.hidden = true; }, 700);
   });
@@ -1199,6 +1399,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     syncListen();
     if (!listening) return;
     wake();
+    if (cloudEar()) { earStart(); return; }
     askMic().then(function () { startListen(); }).catch(function () {
       listening = false; syncListen();
       showSub('Microphone is blocked for this app. Fully close it (swipe it away), reopen it and tap Listen again.'); fadeSub(9000);
