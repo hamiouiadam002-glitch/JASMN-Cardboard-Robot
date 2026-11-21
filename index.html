@@ -324,6 +324,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   function setMood(name) {
     if ((name === 'surprised' || name === 'shocked' || name === 'scared' || name === 'electric') && current !== name) popAmp = name === 'electric' ? 2.2 : (name === 'shocked' ? 1.8 : 1);
     current = name;
+    window.__jmood = name; bodyOut('M:' + name);
     tgt = MOODS[name].p;
     var chips = row.querySelectorAll('[data-mood]');
     for (var i = 0; i < chips.length; i++) chips[i].setAttribute('aria-pressed', chips[i].dataset.mood === name ? 'true' : 'false');
@@ -740,11 +741,23 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   }
   document.addEventListener('visibilitychange', function () { if (!document.hidden) wake(); });
 
+  /* BODY LINK: lets the robot body react on its own (mood, what I am doing, where you touch) */
+  var bodyBeat = 0, bodyLastS = '', bodyLastTouch = 0;
+  function bodyOut(line) {
+    try { if (typeof window.JASMN_SEND === 'function') window.JASMN_SEND(line + '\n'); } catch (e) {}
+  }
+  function bodyTouch() {
+    var now = Date.now();
+    if (now - bodyLastTouch < 160) return;
+    bodyLastTouch = now;
+    bodyOut('T:' + Math.round(ptrX * 100) + ',' + Math.round(ptrY * 100));
+  }
   function point(e) {
     var r = cv.getBoundingClientRect();
     ptrX = clamp(((e.clientX - r.left) / r.width - .5) * 2.2, -1, 1);
     ptrY = clamp(((e.clientY - r.top) / r.height - .5) * 2.2, -1, 1);
     ptrUntil = performance.now() + 3500;
+    bodyTouch();
   }
   cv.addEventListener('pointerdown', function (e) { point(e); wake(); });
   cv.addEventListener('pointermove', function (e) { if (e.buttons || e.pointerType === 'touch') point(e); });
@@ -1480,6 +1493,14 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   setMood('neutral');
   showBar();
   setTimeout(function () { hint.classList.add('fade'); }, 7000);
+  // BODY LINK: tell the robot what I am doing (listening, hearing you, thinking, talking) and repeat it now and then
+  setInterval(function () {
+    var s = talking ? 'talk' : (ear.state === 'speech' ? 'hear' : (busy ? 'think' : (listening ? 'listen' : 'idle')));
+    var now = Date.now(), beat = now - bodyBeat > 8000;
+    if (current !== window.__jmood || beat) { bodyOut('M:' + current); window.__jmood = current; }
+    if (s !== bodyLastS || beat) { bodyOut('S:' + s); bodyLastS = s; }
+    if (beat) bodyBeat = now;
+  }, 250);
   requestAnimationFrame(function (n) { last = n; frame(n); });
 })();
 </script>
@@ -1491,7 +1512,19 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   var URL   = 'wss://na2a3718.ala.eu-central-1.emqxsl.com:8084/mqtt';
   var TOPIC = 'jasmn/commands/7d9c2f81a64b3e90c51a8f62d4b7e103';
   var USER  = 'jasmn-web';
-  var PASS  = 'yrc863sd9o5f-86fr@%)ed@)P^R2-TG+}&wg';   // password of the jasmn-web user (publish-only)
+  var PASS  = 'PASTE_JASMN_WEB_PASSWORD_HERE';   // password of the jasmn-web user (publish-only)
+  // If you leave the placeholder above, the page asks for the password once on each device and remembers it there,
+  // so it never has to sit in the public GitHub file.
+  if (PASS.indexOf('PASTE_') === 0) {
+    try { PASS = localStorage.getItem('jasmn.mqttpass') || ''; } catch (e) { PASS = ''; }
+    if (!PASS) {
+      try {
+        PASS = (window.prompt('JASMN body link: enter the jasmn-web password (asked once on this device)') || '').trim();
+        if (PASS) localStorage.setItem('jasmn.mqttpass', PASS);
+      } catch (e) {}
+    }
+  }
+  if (!PASS) { console.log('JASMN body link disabled: no password'); return; }
 
   var client = null;
   function connect() {
@@ -1513,7 +1546,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   // index.html already calls this with lines like "A:wave"
   window.JASMN_SEND = function (line) {
     var l = String(line).trim();
-    if (!/^A:[a-z_]{1,20}$/.test(l)) return;
+    if (!/^[AMST]:[a-z0-9_,\-]{1,40}$/.test(l)) return;
     if (!client || !client.connected) { console.log('JASMN body link not connected, skipped', l); return; }
     client.publish(TOPIC, l, { qos: 0 });
   };
