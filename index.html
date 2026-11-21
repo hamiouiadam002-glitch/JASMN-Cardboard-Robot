@@ -98,7 +98,39 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 #smsg { min-height: 1.4em; margin: 12px 0 0; font-size: 13px; color: var(--ink); }
 #settings .note { margin: 8px 0 0; font-size: 12px; line-height: 1.5; color: var(--dim); }
 </style>
-
+<style>
+/* manual control page */
+#manual { position: fixed; inset: 0; z-index: 40; background: #04070b; touch-action: none; -webkit-user-select: none; user-select: none; }
+.mslider { position: absolute; background: #0b1520; border: 2px solid #7f96ab; border-radius: 999px; overflow: hidden; touch-action: none; cursor: pointer; }
+.mslider .fill { position: absolute; background: #22b14c; pointer-events: none; }
+.mslider.v .fill { left: 0; right: 0; bottom: 0; height: 0; }
+.mslider.h .fill { top: 0; bottom: 0; left: 0; width: 0; }
+.mslider .mlab { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none;
+  font: 600 12px var(--font-ui); letter-spacing: .08em; color: #f2f7ff; text-shadow: 0 0 4px #000, 0 0 8px #000; white-space: pre; }
+.mslider.v .mlab { writing-mode: vertical-rl; transform: rotate(180deg); }
+#mL, #mR { top: calc(max(14px, env(safe-area-inset-top, 0px)) + 70px); bottom: calc(max(14px, env(safe-area-inset-bottom, 0px)) + 70px); width: 56px; }
+#mL { left: max(14px, env(safe-area-inset-left, 0px)); }
+#mR { right: max(14px, env(safe-area-inset-right, 0px)); }
+#mN, #mB { left: calc(max(14px, env(safe-area-inset-left, 0px)) + 76px); right: calc(max(14px, env(safe-area-inset-right, 0px)) + 76px); height: 56px; }
+#mN { top: max(14px, env(safe-area-inset-top, 0px)); }
+#mB { bottom: max(14px, env(safe-area-inset-bottom, 0px)); }
+#mGo { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: clamp(96px, 30vmin, 220px); height: clamp(96px, 30vmin, 220px);
+  border-radius: 50%; padding: 0; background: #ed1c24; border: 3px solid #000; color: #fff; font: 700 15px var(--font-ui); letter-spacing: .1em; box-shadow: 0 0 24px rgba(237,28,36,.35); }
+#mGo:active { filter: brightness(.85); }
+#mExit { position: absolute; top: max(14px, env(safe-area-inset-top, 0px)); left: max(14px, env(safe-area-inset-left, 0px)); width: 56px; min-height: 56px; padding: 0; border-radius: 50%; font-size: 18px; z-index: 2; }
+#mStatus { position: absolute; left: 0; right: 0; top: calc(50% + clamp(60px, 18vmin, 124px)); text-align: center; padding: 0 100px; font-size: 13px; line-height: 1.4; color: var(--dim); pointer-events: none; }
+#mMoves { position: fixed; inset: 0; z-index: 50; background: rgba(4,7,11,.94); overflow-y: auto; display: flex; align-items: flex-start; justify-content: center;
+  padding: 16px max(16px, env(safe-area-inset-right, 0px)) 16px max(16px, env(safe-area-inset-left, 0px)); }
+#mMoves .mcard { width: min(620px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
+#mMoves h2 { margin: 0 0 4px; font-size: 15px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+#mMoves .mgrp { margin: 16px 0 8px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
+#mMoves .mgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+#mMoves .mgrid button { border-radius: 12px; text-align: left; padding: 10px 14px; line-height: 1.3; }
+#mMoves .mbtns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 18px; }
+#mStop { border-color: #ed1c24; color: #ff6b70; }
+#settings label.chk { display: flex; align-items: center; gap: 10px; }
+#settings input[type="checkbox"] { width: 22px; min-height: 22px; height: 22px; padding: 0; flex: none; }
+</style>
 </head>
 <body>
 
@@ -114,6 +146,28 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     </form>
     <div class="row" id="row">
       <span class="lab">Mood</span>
+    </div>
+  </div>
+</div>
+
+<div id="manual" hidden>
+  <button type="button" id="mExit" aria-label="Back to JASMN">✕</button>
+  <div class="mslider h" id="mN" data-axis="n"><div class="fill"></div><span class="mlab"></span></div>
+  <div class="mslider v" id="mL" data-axis="l"><div class="fill"></div><span class="mlab"></span></div>
+  <div class="mslider v" id="mR" data-axis="r"><div class="fill"></div><span class="mlab"></span></div>
+  <div class="mslider h" id="mB" data-axis="b"><div class="fill"></div><span class="mlab"></span></div>
+  <button type="button" id="mGo" aria-label="Open the list of movements">MOVES</button>
+  <div id="mStatus" aria-live="polite"></div>
+</div>
+
+<div id="mMoves" hidden>
+  <div class="mcard">
+    <h2>Movements</h2>
+    <div id="mList"></div>
+    <div class="mbtns">
+      <button type="button" id="mStop">Stop</button>
+      <button type="button" id="mCenter">Center all</button>
+      <button type="button" id="mClose">Close</button>
     </div>
   </div>
 </div>
@@ -148,6 +202,8 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       <option value="on">On</option>
       <option value="off">Off</option>
     </select>
+    <label for="manualChk" class="chk"><input type="checkbox" id="manualChk"> Manual control (sliders page)</label>
+    <p class="note">Swaps this page for sliders that move the hands, neck and base, and a list of ready-made movements. It needs the robot link to be working. It switches off again when you reload the page.</p>
     <div class="btns">
       <button type="button" id="load">Load models</button>
       <button type="button" id="save" aria-pressed="true">Save</button>
@@ -1493,10 +1549,178 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   setMood('neutral');
   showBar();
   setTimeout(function () { hint.classList.add('fade'); }, 7000);
+  // ===== MANUAL CONTROL: a sliders page + ready-made movements for the robot body =====
+  (function () {
+    var SWAP_HANDS = false;     // set to true if the left slider moves the arm on the wrong side
+    var LIM = { r: [5, 175], l: [5, 175], n: [5, 175], b: [5, 175] };
+    var NAMES = { r: 'RIGHT HAND', l: 'LEFT HAND', n: 'NECK', b: 'BASE' };
+    var REST = { r: 10, l: 10, n: 90, b: 90 };
+    var vals = { r: 10, l: 10, n: 90, b: 90 };
+    var N = null;                                           // "leave this one alone"
+    function st(r, l, n, b, d, h) { return [r, l, n, b, d, h || 0]; }   // right, left, neck, base, ms, hold ms
+    function rep(k, a) { var o = []; for (var i = 0; i < k; i++) o = o.concat(a); return o; }
+
+    // To add a movement: copy a line, change the name and the steps. Angles: hands 10 = down, 150 = up; neck/base 90 = center.
+    var MOVES = [
+      { g: 'Hands', items: [
+        { t: 'Right hand up & down ×3', s: rep(3, [st(150, N, N, N, 450), st(10, N, N, N, 450)]) },
+        { t: 'Left hand up & down ×3', s: rep(3, [st(N, 150, N, N, 450), st(N, 10, N, N, 450)]) },
+        { t: 'Both hands up & down ×3', s: rep(3, [st(150, 150, N, N, 500), st(10, 10, N, N, 500)]) },
+        { t: 'Hands take turns ×4', s: rep(4, [st(150, 10, N, N, 420), st(10, 150, N, N, 420)]) },
+        { t: 'Raise both hands and hold', s: [st(150, 150, N, N, 900, 1500), st(10, 10, N, N, 900)] },
+        { t: 'Right hand wave ×5', s: [st(150, N, N, N, 600)].concat(rep(5, [st(115, N, N, N, 230), st(150, N, N, N, 230)]), [st(10, N, N, N, 700)]) },
+        { t: 'Left hand wave ×5', s: [st(N, 150, N, N, 600)].concat(rep(5, [st(N, 115, N, N, 230), st(N, 150, N, N, 230)]), [st(N, 10, N, N, 700)]) },
+        { t: 'Flap both hands fast ×6', s: rep(6, [st(100, 100, N, N, 200), st(10, 10, N, N, 200)]) },
+        { t: 'Arms out (T pose) and hold', s: [st(90, 90, N, N, 800, 1800), st(10, 10, N, N, 800)] },
+        { t: 'Slow stretch', s: [st(165, 165, N, N, 2000, 1200), st(10, 10, N, N, 2000)] }
+      ] },
+      { g: 'Neck & base', items: [
+        { t: 'Look left and right ×3', s: rep(3, [st(N, N, 40, N, 600), st(N, N, 140, N, 600)]).concat([st(N, N, 90, N, 600)]) },
+        { t: 'Head "no" shake ×4', s: rep(4, [st(N, N, 60, N, 200), st(N, N, 120, N, 200)]).concat([st(N, N, 90, N, 300)]) },
+        { t: 'Base spin left and right ×3', s: rep(3, [st(N, N, N, 40, 900), st(N, N, N, 140, 900)]).concat([st(N, N, N, 90, 700)]) },
+        { t: 'Neck and base spin opposite ways ×6', s: rep(6, [st(N, N, 40, 140, 700), st(N, N, 140, 40, 700)]).concat([st(N, N, 90, 90, 700)]) },
+        { t: 'Neck and base spin the same way ×3', s: rep(3, [st(N, N, 40, 40, 800), st(N, N, 140, 140, 800)]).concat([st(N, N, 90, 90, 700)]) },
+        { t: 'Slow look around', s: [st(N, N, 30, N, 1800, 500), st(N, N, 150, N, 3200, 500), st(N, N, 90, N, 1800)] },
+        { t: 'Look left, hold, look right', s: [st(N, N, 35, N, 700, 1200), st(N, N, 145, N, 1200, 1200), st(N, N, 90, N, 700)] },
+        { t: 'Scan the room', s: [st(N, N, 60, 35, 1800, 400), st(N, N, 120, 145, 3200, 400), st(N, N, 90, 90, 1800)] }
+      ] },
+      { g: 'Full body', items: [
+        { t: 'Dance', s: rep(4, [st(150, 10, 60, 60, 450), st(10, 150, 120, 120, 450)]).concat([st(10, 10, 90, 90, 700)]) },
+        { t: 'Robot dance (poses)', s: [st(150, 10, 45, 45, 500, 150), st(10, 150, 135, 135, 500, 150), st(90, 90, 90, 90, 500, 150), st(150, 150, 60, 120, 500, 150), st(10, 10, 90, 90, 700)] },
+        { t: 'Say hello', s: [st(150, N, 75, N, 700)].concat(rep(3, [st(115, N, N, N, 230), st(150, N, N, N, 230)]), [st(10, N, 90, N, 800)]) },
+        { t: 'Excited jump', s: rep(4, [st(130, 130, 80, N, 180), st(30, 30, 100, N, 180)]).concat([st(10, 10, 90, N, 500)]) },
+        { t: 'Victory', s: [st(150, 150, N, N, 500)].concat(rep(3, [st(N, N, 60, N, 160), st(N, N, 120, N, 160)]), [st(10, 10, 90, N, 800)]) },
+        { t: 'Shy hide', s: [st(40, 40, N, N, 700), st(40, 40, 35, 60, 1500, 1200), st(10, 10, 90, 90, 1500)] },
+        { t: 'Thinking pose', s: [st(60, N, 65, N, 800, 2500), st(10, N, 90, N, 900)] },
+        { t: 'Shrug', s: [st(55, 55, N, N, 380, 500), st(10, 10, N, N, 500)] },
+        { t: 'Sleepy droop', s: [st(10, 10, 60, N, 2500, 1500), st(10, 10, 90, N, 1200)] }
+      ] }
+    ];
+
+    var el = document.getElementById('manual'), moves = document.getElementById('mMoves'), listEl = document.getElementById('mList');
+    var statusEl = document.getElementById('mStatus'), chk = document.getElementById('manualChk');
+    if (!el || !moves || !chk) return;
+    var painters = [], macroTimer = 0;
+
+    function raw(line) { try { if (typeof window.JASMN_SEND_RAW === 'function') return window.JASMN_SEND_RAW(line); } catch (e) {} return false; }
+    function say(t) { statusEl.textContent = t || ''; }
+    function stopMacroTimer() { clearTimeout(macroTimer); macroTimer = 0; }
+    function paintAll() { painters.forEach(function (p) { p(); }); }
+
+    function makeSlider(node) {
+      var axis = node.getAttribute('data-axis'), vertical = node.classList.contains('v');
+      var fill = node.querySelector('.fill'), lab = node.querySelector('.mlab'), lim = LIM[axis];
+      var timer = 0, lastSend = 0, pending = null, dragging = false;
+      function paint() {
+        var p = (vals[axis] - lim[0]) / (lim[1] - lim[0]);
+        p = Math.max(0, Math.min(1, p));
+        if (vertical) fill.style.height = (p * 100) + '%'; else fill.style.width = (p * 100) + '%';
+        lab.textContent = NAMES[axis] + '  ' + Math.round(vals[axis]) + '°';
+      }
+      function flush() {
+        clearTimeout(timer); timer = 0;
+        if (pending === null) return;
+        lastSend = Date.now();
+        raw('P:' + axis + Math.round(pending));
+        pending = null;
+      }
+      function queue(v) {
+        pending = v;
+        var wait = 70 - (Date.now() - lastSend);
+        if (wait <= 0) flush(); else if (!timer) timer = setTimeout(flush, wait);
+      }
+      function fromEvent(e) {
+        var r = node.getBoundingClientRect();
+        var p = vertical ? 1 - (e.clientY - r.top) / r.height : (e.clientX - r.left) / r.width;
+        p = Math.max(0, Math.min(1, p));
+        vals[axis] = Math.round(lim[0] + p * (lim[1] - lim[0]));
+        paint(); queue(vals[axis]); stopMacroTimer();
+      }
+      node.addEventListener('pointerdown', function (e) {
+        e.preventDefault(); dragging = true;
+        try { node.setPointerCapture(e.pointerId); } catch (x) {}
+        fromEvent(e);
+      });
+      node.addEventListener('pointermove', function (e) { if (dragging) fromEvent(e); });
+      function end() { dragging = false; flush(); }
+      node.addEventListener('pointerup', end);
+      node.addEventListener('pointercancel', end);
+      painters.push(paint);
+    }
+
+    // which slider controls which hand
+    var nL = document.getElementById('mL'), nR = document.getElementById('mR');
+    nL.setAttribute('data-axis', SWAP_HANDS ? 'r' : 'l');
+    nR.setAttribute('data-axis', SWAP_HANDS ? 'l' : 'r');
+    [nL, nR, document.getElementById('mN'), document.getElementById('mB')].forEach(makeSlider);
+
+    function play(m) {
+      var steps = m.s;
+      var body = steps.map(function (s) { return s.map(function (v) { return v === null ? 'k' : Math.round(v); }).join(','); }).join(';');
+      if (body.length > 880 || steps.length > 60) { say('That movement is too long to send.'); return; }
+      var sent = raw('Q:' + body);
+      var fin = { r: vals.r, l: vals.l, n: vals.n, b: vals.b }, total = 0;
+      steps.forEach(function (s) {
+        ['r', 'l', 'n', 'b'].forEach(function (a, i) { if (s[i] !== null) fin[a] = s[i]; });
+        total += s[4] + s[5];
+      });
+      stopMacroTimer();
+      say(sent === false ? 'Not connected to the robot yet.' : 'Playing: ' + m.t);
+      macroTimer = setTimeout(function () {
+        vals = fin; paintAll(); say('Done: ' + m.t); macroTimer = 0;
+      }, total + 250);
+    }
+
+    // the list window
+    MOVES.forEach(function (grp) {
+      var h = document.createElement('div'); h.className = 'mgrp'; h.textContent = grp.g; listEl.appendChild(h);
+      var grid = document.createElement('div'); grid.className = 'mgrid'; listEl.appendChild(grid);
+      grp.items.forEach(function (m) {
+        var b = document.createElement('button'); b.type = 'button'; b.textContent = m.t;
+        b.addEventListener('click', function () { moves.hidden = true; play(m); });
+        grid.appendChild(b);
+      });
+    });
+    document.getElementById('mGo').addEventListener('click', function () { moves.hidden = false; });
+    document.getElementById('mClose').addEventListener('click', function () { moves.hidden = true; });
+    document.getElementById('mStop').addEventListener('click', function () {
+      stopMacroTimer(); raw('X:stop'); moves.hidden = true;
+      say('Stopped. Press MOVES, then Center all, to line the sliders up with the robot again.');
+    });
+    document.getElementById('mCenter').addEventListener('click', function () {
+      moves.hidden = true; play({ t: 'Center all', s: [st(REST.r, REST.l, REST.n, REST.b, 900)] });
+    });
+
+    function enter() {
+      window.__jmanual = true;
+      vals = { r: REST.r, l: REST.l, n: REST.n, b: REST.b };
+      paintAll();
+      el.hidden = false; moves.hidden = true;
+      if (typeof panel !== 'undefined') panel.hidden = true;
+      var linked = typeof window.JASMN_LINKED === 'function' && window.JASMN_LINKED();
+      raw('X:manual');
+      setTimeout(function () { raw('Q:' + REST.r + ',' + REST.l + ',' + REST.n + ',' + REST.b + ',900,0'); }, 200);
+      say(linked ? 'Manual control. Moving the robot to the center position...' : 'Not connected to the robot yet. Wait a few seconds, then turn manual control off and on again.');
+    }
+    function leave() {
+      stopMacroTimer();
+      raw('X:auto');
+      window.__jmanual = false;
+      el.hidden = true; moves.hidden = true;
+      bodyBeat = 0; bodyLastS = ''; window.__jmood = '';    // makes the next tick tell the robot the mood and state again
+    }
+    chk.addEventListener('change', function () { if (chk.checked) enter(); else leave(); });
+    document.getElementById('mExit').addEventListener('click', function () { chk.checked = false; leave(); });
+  })();
+
   // BODY LINK: tell the robot what I am doing (listening, hearing you, thinking, talking) and repeat it now and then
   setInterval(function () {
     var s = talking ? 'talk' : (ear.state === 'speech' ? 'hear' : (busy ? 'think' : (listening ? 'listen' : 'idle')));
     var now = Date.now(), beat = now - bodyBeat > 8000;
+    if (window.__jmanual) {
+      if (beat) { bodyBeat = now; if (typeof window.JASMN_SEND_RAW === 'function') window.JASMN_SEND_RAW('X:manual'); }
+      return;
+    }
     if (current !== window.__jmood || beat) { bodyOut('M:' + current); window.__jmood = current; }
     if (s !== bodyLastS || beat) { bodyOut('S:' + s); bodyLastS = s; }
     if (beat) bodyBeat = now;
@@ -1543,13 +1767,24 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     client.on('error', function (e) { console.log('JASMN body link error:', e && e.message ? e.message : e); });
   }
 
-  // index.html already calls this with lines like "A:wave"
+  // index.html already calls this with lines like "A:wave"; the body-link lines are M: (mood), S: (state), T: (touch)
   window.JASMN_SEND = function (line) {
     var l = String(line).trim();
     if (!/^[AMST]:[a-z0-9_,\-]{1,40}$/.test(l)) return;
+    if (window.__jmanual) return;                       // sliders page is open: the face page stays quiet
     if (!client || !client.connected) { console.log('JASMN body link not connected, skipped', l); return; }
     client.publish(TOPIC, l, { qos: 0 });
   };
+
+  // used by the sliders page: P: (one servo), Q: (a movement), X: (manual / auto / stop). Returns false if not connected.
+  window.JASMN_SEND_RAW = function (line) {
+    var l = String(line).trim();
+    if (!/^(P:[rlnb][0-9]{1,3}|X:[a-z]{1,10}|Q:[0-9k,;]{1,900})$/.test(l)) return false;
+    if (!client || !client.connected) return false;
+    client.publish(TOPIC, l, { qos: 0 });
+    return true;
+  };
+  window.JASMN_LINKED = function () { return !!(client && client.connected); };
 
   connect();
 })();
