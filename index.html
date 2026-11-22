@@ -102,6 +102,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* manual control page */
 #manual { position: fixed; inset: 0; z-index: 40; background: #04070b; touch-action: none; -webkit-user-select: none; user-select: none; }
 .mslider { position: absolute; background: #0b1520; border: 2px solid #7f96ab; border-radius: 999px; overflow: hidden; touch-action: none; cursor: pointer; }
+.mslider.off { opacity: .35; cursor: not-allowed; }
 .mslider .fill { position: absolute; background: #22b14c; pointer-events: none; }
 .mslider.v .fill { left: 0; right: 0; bottom: 0; height: 0; }
 .mslider.h .fill { top: 0; bottom: 0; left: 0; width: 0; }
@@ -1552,7 +1553,8 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   // ===== MANUAL CONTROL: a sliders page + ready-made movements for the robot body =====
   (function () {
     var SWAP_HANDS = false;     // set to true if the left slider moves the arm on the wrong side
-    var LIM = { r: [5, 175], l: [5, 175], n: [5, 175], b: [5, 175] };
+    var HAS_BASE = false;       // set to true again once a working base servo is connected
+    var LIM = { r: [5, 175], l: [5, 175], n: [25, 155], b: [25, 155] };   // neck and base are narrower on purpose: protects the 9IMOD servos
     var NAMES = { r: 'RIGHT HAND', l: 'LEFT HAND', n: 'NECK', b: 'BASE' };
     var REST = { r: 10, l: 10, n: 90, b: 90 };
     var vals = { r: 10, l: 10, n: 90, b: 90 };
@@ -1610,12 +1612,13 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     function makeSlider(node) {
       var axis = node.getAttribute('data-axis'), vertical = node.classList.contains('v');
       var fill = node.querySelector('.fill'), lab = node.querySelector('.mlab'), lim = LIM[axis];
-      var timer = 0, lastSend = 0, pending = null, dragging = false;
+      var timer = 0, lastSend = 0, pending = null, dragging = false, disabled = (axis === 'b' && !HAS_BASE);
+      if (disabled) node.classList.add('off');
       function paint() {
         var p = (vals[axis] - lim[0]) / (lim[1] - lim[0]);
         p = Math.max(0, Math.min(1, p));
         if (vertical) fill.style.height = (p * 100) + '%'; else fill.style.width = (p * 100) + '%';
-        lab.textContent = NAMES[axis] + '  ' + Math.round(vals[axis]) + '°';
+        lab.textContent = disabled ? NAMES[axis] + '  (not connected)' : NAMES[axis] + '  ' + Math.round(vals[axis]) + '°';
       }
       function flush() {
         clearTimeout(timer); timer = 0;
@@ -1637,6 +1640,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
         paint(); queue(vals[axis]); stopMacroTimer();
       }
       node.addEventListener('pointerdown', function (e) {
+        if (disabled) return;
         e.preventDefault(); dragging = true;
         try { node.setPointerCapture(e.pointerId); } catch (x) {}
         fromEvent(e);
@@ -1676,7 +1680,9 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       var h = document.createElement('div'); h.className = 'mgrp'; h.textContent = grp.g; listEl.appendChild(h);
       var grid = document.createElement('div'); grid.className = 'mgrid'; listEl.appendChild(grid);
       grp.items.forEach(function (m) {
-        var b = document.createElement('button'); b.type = 'button'; b.textContent = m.t;
+        var b = document.createElement('button'); b.type = 'button';
+        var usesBase = m.s.some(function (s) { return s[3] !== null; });
+        b.textContent = m.t + (usesBase && !HAS_BASE ? '  (needs the base)' : '');
         b.addEventListener('click', function () { moves.hidden = true; play(m); });
         grid.appendChild(b);
       });
