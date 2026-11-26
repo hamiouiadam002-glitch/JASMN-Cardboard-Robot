@@ -985,7 +985,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     + 'You also have a body that can move. Pick an action only when it feels natural: wave when greeting or saying goodbye, shake (your head turns side to side) when you disagree or say no, look_left or look_right when something makes you curious, turn_left or turn_right to turn your whole body toward something, shrug when you do not know, raise_arms or flap when you are very excited. You cannot nod. Otherwise use none.';
   var GEMINI = 'https://generativelanguage.googleapis.com/v1beta/';
   var PROVIDERS = {
-    groq:   { name: 'Groq',   base: 'https://api.groq.com/openai/v1/',  def: 'llama-3.3-70b-versatile' },
+    groq:   { name: 'Groq',   base: 'https://api.groq.com/openai/v1/',  def: 'openai/gpt-oss-120b' },
     xai:    { name: 'xAI Grok', base: 'https://api.x.ai/v1/',           def: 'grok-4' },
     gemini: { name: 'Google', base: GEMINI,                             def: 'models/gemini-flash-lite-latest' }
   };
@@ -1279,35 +1279,58 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       return { raw: txt, json: JSON.parse(txt) };
     });
   }
-  function callOpenAI(q, fast, web) {
-    var msgs = [{ role: 'system', content: PERSONA + ' Reply with JSON only, in this exact shape: {"reply": "<what you say>", "mood": "<one of: ' + AIMOODS.join(', ') + '>", "lang": "<en, fr or ar>", "action": "<one of: ' + ACTIONS.join(', ') + '>"}.' }];
-    if (web) msgs[0].content += ' You have live web search. Use it whenever the answer could be wrong, outdated or you are not fully sure: current events, the time or weather, prices, scores, specific numbers, people, places, products, anything recent. Answer from what you find, in one or two short sentences, with no links or source names.';
-    hist.forEach(function (h) { msgs.push({ role: h.role === 'model' ? 'assistant' : 'user', content: h.parts[0].text }); });
-    msgs.push({ role: 'user', content: q });
-    var body = { model: web ? WEB_MODEL : (fast ? FAST_MODEL : model), messages: msgs, temperature: 0.8, max_tokens: web ? 500 : (fast ? 140 : 320) };
-    if (!web) body.response_format = { type: 'json_object' };
+  function httpFail(res, t) {
+    var err = new Error('http'); err.status = res.status; err.detail = '';
+    try { var j = JSON.parse(t); err.detail = (j.error && (j.error.message || j.error.code || j.error)) || j.message || ''; } catch (e) { err.detail = String(t || '').slice(0, 200); }
+    var d = String(err.detail).toLowerCase();
+    err.kind = res.status === 401 || res.status === 403 ? 'auth' : res.status === 429 ? 'rate' : res.status >= 500 ? 'server'
+      : /model/.test(d) && /(not found|decommission|deprecat|does not exist|no access)/.test(d) ? 'model'
+      : /tool|browser_search/.test(d) ? 'tool' : 'other';
+    return err;
+  }
+  function groqPost(body) {
     return fetch(PROVIDERS[provider].base + 'chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
       body: JSON.stringify(body)
     }).then(function (res) {
-      if (!res.ok) {
-        return res.text().then(function (t) {
-          var err = new Error('http'); err.status = res.status; err.detail = '';
-          try { var j = JSON.parse(t); err.detail = (j.error && (j.error.message || j.error)) || j.message || ''; } catch (e) { err.detail = String(t || '').slice(0, 200); }
-          throw err;
-        });
-      }
+      if (!res.ok) return res.text().then(function (t) { throw httpFail(res, t); });
       return res.json();
-    }).then(function (data) {
+    });
+  }
+  // Step 1 of a web question: Groq Browser Search on a gpt-oss model. Plain text out, no JSON/structured output here.
+  function groqSearch(q) {
+    var msgs = [{ role: 'system', content: 'You are a research assistant. Today is ' + new Date().toDateString() + '. Use the browser search tool to find current, reliable information, then write concise factual findings (a few short plain sentences, include the key names, numbers and dates, mention the source site names).' }];
+    hist.slice(-4).forEach(function (h) { msgs.push({ role: h.role === 'model' ? 'assistant' : 'user', content: h.parts[0].text }); });
+    msgs.push({ role: 'user', content: q });
+    return groqPost({ model: WEB_MODEL, messages: msgs, tools: [{ type: 'browser_search' }], tool_choice: 'required', temperature: 0.3, max_completion_tokens: 2000, reasoning_effort: 'low' }).then(function (data) {
+      var m = data && data.choices && data.choices[0] && data.choices[0].message || {};
+      var tools = m.executed_tools || [], sources = [], seen = {};
+      tools.forEach(function (t) {
+        var r = t.search_results && t.search_results.results || [];
+        r.forEach(function (x) { if (x.url && !seen[x.url]) { seen[x.url] = 1; sources.push({ title: x.title || '', url: x.url }); } });
+      });
+      var found = String(m.content || '').trim();
+      window.JASMN_LAST_SEARCH = { question: q, model: WEB_MODEL, searchesRun: tools.length, findings: found, sources: sources, time: new Date().toISOString() };
+      console.log('[JASMN web search] searches run:', tools.length, '| sources:', sources.length, window.JASMN_LAST_SEARCH);
+      if (!found) { var e = new Error('empty'); e.status = 502; e.kind = 'server'; e.detail = 'Search returned no text'; throw e; }
+      return found;
+    });
+  }
+  function callOpenAI(q, fast, web) {
+    if (web) {   // step 1: search, step 2: format as JASMN JSON through the normal path
+      return groqSearch(q).then(function (found) {
+        return callOpenAI(q + '\n\n(Live web search findings, use them to answer; if the question asks for several items give each in a very short sentence, at most three sentences in total:\n' + found.slice(0, 3500) + '\n)', false, false);
+      });
+    }
+    var msgs = [{ role: 'system', content: PERSONA + ' Reply with JSON only, in this exact shape: {"reply": "<what you say>", "mood": "<one of: ' + AIMOODS.join(', ') + '>", "lang": "<en, fr or ar>", "action": "<one of: ' + ACTIONS.join(', ') + '>"}.' }];
+    hist.forEach(function (h) { msgs.push({ role: h.role === 'model' ? 'assistant' : 'user', content: h.parts[0].text }); });
+    msgs.push({ role: 'user', content: q });
+    var body = { model: fast ? FAST_MODEL : model, messages: msgs, temperature: 0.8, max_tokens: fast ? 140 : 320, response_format: { type: 'json_object' } };
+    if (provider === 'groq' && /gpt-oss/.test(body.model)) { body.reasoning_effort = 'low'; body.max_tokens += 400; }   // reasoning tokens count against the limit
+    return groqPost(body).then(function (data) {
       var txt = data && data.choices && data.choices[0] && data.choices[0].message ? (data.choices[0].message.content || '') : '';
       txt = txt.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
-      if (web) {
-        var mm = txt.match(/\{[\s\S]*\}/);
-        if (mm) { try { return { raw: mm[0], json: JSON.parse(mm[0]) }; } catch (e) {} }
-        var jj = { reply: cleanSpoken(txt), mood: 'smile', lang: 'en', action: 'none' };
-        return { raw: JSON.stringify(jj), json: jj };
-      }
       return { raw: txt, json: JSON.parse(txt) };
     });
   }
@@ -1371,7 +1394,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     return 'Today is ' + new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(now) + '.';
   }
   // questions that need live or looked-up facts go to Groq's web-search model
-  var WEB_ON = store('web') !== 'off', webOK = true, WEB_MODEL = 'groq/compound-mini';
+  var WEB_ON = store('web') !== 'off', webOK = true, WEB_MODEL = 'openai/gpt-oss-20b';
   var WEBQ = /\b(right now|currently|current|today|tonight|tomorrow|yesterday|latest|newest|recent|recently|news|weather|forecast|temperature|scores?|stocks?|price of|exchange rate|who won|president of|prime minister|release date|trending|open now|this week|this year|this month|202\d)\b|\b(how (tall|high|big|far|old|long|many|much|heavy|fast|deep)|population of|height of|distance (from|to|between)|when (was|did|is)|where is|who (is|was|are|were)|what is the (height|population|capital|distance|price|age|length|speed|weight)|capital of)\b|météo|aujourd'hui|actualité|maintenant|الطقس|اليوم|الآن|أخبار/i;
   var ABOUTHER = /\b(who|what|how) (are|is|r) (you|u)\b|\b(who|what) (made|built|created|is your)\b|your name|yourself/i;
   // No keyword list any more: every real question goes to the search model, which decides by itself whether it needs to look something up.
@@ -1385,7 +1408,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   // simple things go to a small fast model, anything that needs real thinking goes to the chosen big model
   var HARD = /\b(why|how|explain|difference|compare|calculate|solve|write|story|poem|plan|code|translate|summar\w*|should i|what if|tell me about|teach|describe|pourquoi|comment|expliqu\w*|raconte|écris|ecris)\b|كيف|لماذا|اشرح|\d\s*[-+*\/x×÷]\s*\d/i;
   function isSimple(q) { return q.trim().split(/\s+/).length <= 9 && !HARD.test(q); }
-  var reqId = 0, fastOK = true, thinkT = 0, FAST_MODEL = 'llama-3.1-8b-instant';
+  var reqId = 0, fastOK = true, thinkT = 0, FAST_MODEL = 'openai/gpt-oss-20b';
 
   function ask(q, opts) {
     opts = opts || {};
@@ -1416,17 +1439,18 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     var prompt = opts.note === 'loud' ? q + '\n(You were just woken by a loud shout and got an electric shock. React to that briefly, in character, then answer.)' : q;
     var call = callBrain(prompt, fast, web).catch(function (err) {
       if (web && err && err.status) {                                // search unavailable: answer without it, and say so if it matters
-        if (err.status !== 429) webOK = false;
+        console.warn('[JASMN web search failed]', err.kind, err.status, err.detail);   // never disables search: next question retries
+        if (err.kind === 'auth') throw err;
         return callBrain(prompt + '\n(Live web search is unavailable right now. If this needs current information, say honestly that you cannot check it.)', false, false);
       }
-      if (fast && err && err.status) { if (err.status !== 429) fastOK = false; return callBrain(prompt, false, false); }
+      if (fast && err && err.status) { if (err.kind === 'model' || err.status === 404) fastOK = false; return callBrain(prompt, false, false); }
       throw err;
     });
     call.then(function (out) {
       if (my !== reqId) return;
       clearTimeout(thinkT);
       var r = out.json || {};
-      var reply = cleanSpoken(String(r.reply || '')).slice(0, 400).trim();
+      var reply = cleanSpoken(String(r.reply || '')).slice(0, 600).trim();
       if (!reply) { fail('I had nothing to say. Try again.'); return; }
       var mood = AIMOODS.indexOf(r.mood) >= 0 ? r.mood : 'smile';
       var lang = /^(en|fr|ar)$/.test(r.lang) ? r.lang : 'en';
@@ -1442,8 +1466,9 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       clearTimeout(thinkT);
       var s = err && err.status;
       var d = err && err.detail ? String(err.detail).replace(/\s+/g, ' ').slice(0, 200) : '';
-      if (s === 429) fail('I hit my free limit for now. Try again in a minute, or tomorrow if it was the daily limit.' + (d ? ' (' + d + ')' : ''));
-      else if (s) fail(PROVIDERS[provider].name + ' answered with error ' + s + (d ? ': ' + d : '') + ' Try another model in Settings.');
+      if (err && err.kind === 'auth') fail('Groq rejected my key (error ' + s + '). Check the key in Settings.');
+      else if (s === 429) fail('I hit my free limit for now. Try again in a minute, or tomorrow if it was the daily limit.' + (d ? ' (' + d + ')' : ''));
+      else if (s) fail(PROVIDERS[provider].name + ' answered with error ' + s + (d ? ': ' + d : '') + ' ' + (err.kind === 'model' ? 'That model is not available; pick another in Settings.' : ''));
       else if (err && err.name === 'SyntaxError') fail('My answer came out garbled. Try again.');
       else fail('I could not reach my brain. Check the internet connection.');
     });
@@ -1473,6 +1498,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     provider = pv; DEFAULT_MODEL = PROVIDERS[pv].def;
     apiKey = store('key.' + pv) || (pv === 'gemini' ? store('key') : '') || '';
     model = store('model.' + pv) || DEFAULT_MODEL;
+    if (pv === 'groq' && /^(llama-|groq\/compound|qwen\/qwen3(\.6)?-)/.test(model)) model = DEFAULT_MODEL;   // retired Groq models
     keyEl.value = apiKey;
     document.getElementById('keyLabel').textContent = PROVIDERS[pv].name + ' API key';
     fillModels([DEFAULT_MODEL], model);
