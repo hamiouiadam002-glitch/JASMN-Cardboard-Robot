@@ -921,8 +921,39 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   // Change these two numbers (milliseconds) to make her sleepier or more alert.
   var IDLE_SLEEPY = 40000, IDLE_SLEEP = 70000;
   var lastActive = Date.now(), autoStage = 0, wakeT = 0;   // autoStage: 0 awake, 1 sleepy, 2 asleep (set by the timer, not by you)
+  // ==== WAKE-SEQ-BEGIN
+  // Phase 2A: a gentle screen-only wake-up from deep sleep: eyes open (sleepy) -> brief startle (surprised) -> look around (curious) -> smile -> neutral.
+  // Only existing moods and the existing gaze override are used. Each step runs only if nobody else has changed the mood meanwhile,
+  // so a real answer (which sets its own mood) simply takes over. One timer, one id: sequences can never overlap.
+  var wakeSeqT = 0, wakeSeqId = 0, wakeLook = false;
+  var WAKE_STEPS = [
+    { mood: 'sleepy', ms: 650 },
+    { mood: 'surprised', ms: 700 },
+    { mood: 'curious', ms: 900, look: [-.8, -.15] },
+    { mood: 'curious', ms: 900, look: [.8, -.1] },
+    { mood: 'smile', ms: 1600, look: [0, 0] }
+  ];
+  function cancelWakeSeq() {
+    wakeSeqId++; clearTimeout(wakeSeqT); wakeSeqT = 0;
+    if (wakeLook) { ptrUntil = 0; wakeLook = false; }
+  }
+  function startWakeSeq() {
+    cancelWakeSeq();
+    var id = wakeSeqId, i = 0, prev = 'sleeping';
+    (function step() {
+      if (id !== wakeSeqId || talking || current !== prev) { if (id === wakeSeqId) cancelWakeSeq(); return; }   // someone else took over the mood: stop quietly
+      if (i >= WAKE_STEPS.length) { cancelWakeSeq(); if (current === 'smile') setMood('neutral'); return; }
+      var s = WAKE_STEPS[i++];
+      if (s.mood !== current) setMood(s.mood);
+      if (s.look) { ptrX = s.look[0]; ptrY = s.look[1]; ptrUntil = performance.now() + s.ms + 150; wakeLook = true; }
+      prev = s.mood;
+      wakeSeqT = setTimeout(step, s.ms);
+    })();
+  }
+  // ==== WAKE-SEQ-END
   function noteActive() {
     lastActive = Date.now();
+    if (autoStage === 2 && current === 'sleeping') { autoStage = 0; clearTimeout(wakeT); startWakeSeq(); return; }
     if (autoStage > 0) {
       autoStage = 0;
       setMood('surprised');
@@ -935,7 +966,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     if (demo || talking || busy || document.hidden || ear.state === 'speech') return;
     var idle = Date.now() - lastActive;
     if (idle > IDLE_SLEEP) {
-      if (autoStage < 2 && !(current === 'sleeping' && autoStage === 0)) { autoStage = 2; setMood('sleeping'); sendAction('lower_arms'); }
+      if (autoStage < 2 && !(current === 'sleeping' && autoStage === 0)) { autoStage = 2; cancelWakeSeq(); setMood('sleeping'); sendAction('lower_arms'); }
     } else if (idle > IDLE_SLEEPY) {
       if (autoStage === 0 && current !== 'sleeping') { autoStage = 1; setMood('sleepy'); }
     }
@@ -1089,7 +1120,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   var wakeShockT = 0;
   function shockWake() {
     autoStage = 0; justShocked = Date.now(); lastActive = Date.now();
-    clearTimeout(wakeT); clearTimeout(wakeShockT); clearTimeout(calmT);
+    clearTimeout(wakeT); clearTimeout(wakeShockT); clearTimeout(calmT); cancelWakeSeq();
     setMood('electric'); sendAction('flap');
     wakeShockT = setTimeout(function () {
       if (current !== 'electric' || talking || busy) return;
