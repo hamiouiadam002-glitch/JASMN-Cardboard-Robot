@@ -1,0 +1,90 @@
+PASS two providers: only Groq and Gemini are in the rotation (xAI ignored without a key)
+PASS JASMN_STATUS lists no xAI
+PASS 1  Groq answers, no switching, history written once
+PASS 2a Groq TPM 429 -> Gemini answers, mood kept
+PASS 2b Groq is not called again while it is cooling down
+PASS 2c Groq recovered -> JASMN returns to Groq automatically
+PASS 3a Groq cooling + Gemini limited -> pending message, question kept, history untouched
+PASS 3b retried automatically when Groq recovered (~5s), answered once, history not duplicated
+PASS 4  both limited -> waits for the first cooldown, retries once, resumes (groq,gemini,groq)
+PASS 5  Gemini limit expired while Groq still cooling -> Gemini used again
+PASS 6a Groq search 429 -> Gemini google_search -> formatted by Groq (groq:type/browser_search | gemini:google_search/ | groq:chat)
+PASS 6b Gemini sources kept; mood and action still applied
+PASS 6c search: Groq cooling + Gemini limited -> pending, question kept (waited for this request, not the old one)
+PASS 6d search: Groq recovered -> Groq Browser Search performs the retried search
+PASS 6e both search providers limited -> pending retry -> whichever recovers does the search
+PASS 7a both daily-limited -> question kept, one retry scheduled, honest about closed pages ("My daily limits are used up. The first one should reset in about 14 mi...")
+PASS 7b Gemini reset = next Pacific midnight; Groq reset = "try again in 14m2s"
+PASS 7c exactly ONE timer, saved with question + expiry (reset + 10-20 s margin)
+PASS 7d no polling: 10 virtual minutes pass with zero traffic and still just one timer
+PASS 7e "try again" before the reset sends nothing, keeps the same single timer
+PASS 7f at the reset the SAVED question is retried once automatically; answered; saved entry removed; no timers left
+PASS 7g retry tries the preferred provider (Groq) first, then Gemini; original question sent once with the earlier history
+PASS 7h "cancel" removes the timer and the saved entry; nothing is sent at the reset time
+PASS 7i a new question replaces the saved one: only the new question is stored, one timer, no network traffic
+PASS 7j at the reset only the replacement question is retried; the old one is gone from history and storage
+PASS 7k reopening restores the question, the history and one timer, with no traffic yet
+PASS 7l the restored request is retried at the reset, answered once, entry removed
+PASS 7m reopened 30 min after the reset -> retries within seconds
+PASS 7n late reopen: answered once
+PASS 7o an expired saved request is discarded, not retried
+PASS 7p corrupt saved data is ignored and cleared
+PASS 7q tampered history entries are rejected
+PASS 7r reset passed but both still reject -> exactly one extra round (groq then gemini = 2 calls), honest message, no timers, no endless loop over 3 more virtual days
+PASS 7s after giving up, the user can still say "try again" and the original question is re-sent
+PASS 7t an interruption while she was speaking the notice does not cancel the daily wait
+PASS 7u storage refused -> she says it only lives while the page is open (no false promise)
+PASS 7v retry still works in memory when storage is unavailable
+PASS 7w a long non-daily outage (e.g. permission) is NOT auto-retried: old "ask me again" message, nothing saved
+PASS 20a daily limit with a valid Groq reset header -> that header is the reset (9000 s), one daily retry scheduled for it
+PASS 20b daily limit with Groq retry-after -> used (7200 s); the per-minute token reset header (2 s) is NOT used
+PASS 20c daily limit with an explicit reset duration in the message -> parsed (2h3m10s = 7390 s)
+PASS 20d daily limit, no reliable reset (only per-minute token / daily request headers) -> reset marked unknown, NO timer, nothing saved, question kept, honest message
+PASS 20e manual try again right away sends nothing (60 s anti-hammer pause only), still no timer
+PASS 20f after the pause, manual try again re-sends the SAVED question and it is answered
+PASS 20g unknown reset: three virtual days later still zero background traffic and zero timers
+PASS 20h one reset unknown + one known -> retry scheduled only for the known Gemini midnight reset
+PASS 20i Groq TPM limit stays a short limit: waits 2 s (tokens-reset header), the 23h50m request header is ignored, no daily save
+PASS 20j the TPM limit is retried after seconds and answered (existing bounded short-retry path)
+PASS 20k Gemini per-minute quota whose message says daily is NOT treated as a daily lockout
+PASS 20l Gemini minute+day violations -> daily (Pacific midnight); an implausible 25 h+ Groq reset (100000 s) is not believed -> unknown
+PASS 21a Gemini Search refused on free tier -> search tool marked unavailable (12 h), NOT rate-limit, NOT invalid key; Groq Search answered (groq,gemini,groq,groq)
+PASS 21b normal Gemini conversation keeps working while its Search tool is unsupported
+PASS 21c later searches skip Gemini Search (Groq searches, Gemini only formats the answer) (groq,gemini)
+PASS 21d Gemini-only + free tier: honest search-unavailable message, no answer from memory, history untouched
+PASS 21e same session: normal Gemini chat still works
+PASS 21f next search question: honest message again, zero network calls (no repeated failing probes)
+PASS 21g HTTP 400 "search not supported" -> search tool unavailable (not auth, chat untouched)
+PASS 21h HTTP 403 "search only on paid tier" -> search tool unavailable (NOT a permission block on all of Gemini)
+PASS 21i a genuinely invalid key during a search is still reported as an invalid key
+PASS 21j an exhausted Gemini grounding quota only disables Gemini Search, not Gemini chat
+PASS 21k JASMN_STATUS shows which concrete model the Gemini alias resolved to
+PASS 22a Pacific timezone calculation failure -> null (no guessed delay)
+PASS 22b invalid Pacific calculation (NaN) -> null
+PASS 22b2 out-of-range Pacific calculation -> null
+PASS 22c unknown Pacific reset -> no timer, nothing persisted, original question kept, 60 s pause only
+PASS 22d manual retry before 60 s sends nothing
+PASS 22e after 60 s manual retry re-sends the ORIGINAL question and is answered
+PASS 22f no background timers afterwards
+PASS 22g valid Gemini Pacific midnight reset unchanged
+PASS 22h English notool message is neutral
+PASS 22i French and Arabic notool messages are neutral
+PASS 22j normal Gemini conversation still works
+PASS 22k Groq Search still works
+PASS 8a asking a new question while one is pending replaces it; the old one is never retried or duplicated
+PASS 8b if nothing is asked, the pending question is retried and answered exactly once
+PASS 9  "cancel" stops the pending request; no background retry, no timers left
+PASS 10 rapid questions: only the newest is answered, history written once (3 calls)
+PASS 11 persistent short limits stop after bounded retries (14 calls), honest message
+PASS 12a invalid Groq key -> Gemini answers; the bad key is not tried again
+PASS 12b both keys invalid -> clear Settings message, nothing is sent with bad keys
+PASS 12c Groq only (no Gemini key): limit -> waits and retries Groq, never errors about Gemini
+PASS 13a the history question is ordinary conversation (no web routing)
+PASS 13b history + persona carried to Gemini; question sent once (groq,groq,gemini)
+PASS 14 both searches unverified -> "could not verify", no invented answer, no ordinary chat call
+PASS 15 routing: hello/explain/poem no search; news/search -> search
+PASS 16 no unexpected network calls
+PASS 17 no xAI/Grok mention or error anywhere
+PASS 18 API keys never appear in logs (even when an API error echoes one)
+PASS 19 no timers left running
+TOTAL pass=89 fail=0
